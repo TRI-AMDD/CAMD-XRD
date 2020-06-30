@@ -24,13 +24,17 @@ class HierarchicalStructureGeneration:
 
     **Returns:** A list of feasible sets of atomic positions that satisfy the composition, symmetry and distance constraints.
     """
-    def __init__(self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, npoints=10):
+    def __init__(self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None):
         """
-        Blah blah blah
         Args:
             - spg (int): space group
-            - a (float): ....
-            
+            - a, b, c  (float): a, b, c  lattice parameters in Angstroms in conventional standard cell
+            - alpha, beta, gamma (float): alpha, beta, gamma angles in conventional standard cell
+            - atoms (list): List of tuples species in the form [# of atoms, 'Species'] e.g. [(4,'Pb'), (16,'O'), (4,'S')]
+            - d_tol (float): general minimum distance between atoms in cell in Angstroms
+            - d_mins (dict): Element pair specific minimum distances bewtween atoms in cell e.g. {'Pb': 1.5*2, 'S': 1.70*2, 'O': 2.1, 'O-Pb': 2.4, 'Pb-S': 3.0}
+        Returns:
+            HierarchicalStructureGeneration object
         
         """
         self.spg = spg
@@ -39,19 +43,18 @@ class HierarchicalStructureGeneration:
         self.atoms = sorted(atoms)
         self.d_tol = d_tol
         self.d_mins = d_mins if d_mins else {}
-        self.npoints = npoints
-        
+
         self.lattice = Lattice.from_parameters(a,b,c,alpha,beta,gamma)
-        
+
         self.d_tol_squared = self.d_tol**2 # general overlap distance threshold
         self.d_mins_squared = {k: v**2 for k,v in self.d_mins.items()}
-        
+
         self.wyckoffs = get_wyckoffs(spg)
         self.multiplicities = [len(w) for w in self.wyckoffs]
-        
+
         self.all_active_wyckoffs = np.array([i for i in range(len(self.wyckoffs)) if sum(self.active_dim(self.wyckoffs[i]))>0])
-    
-    def get_wyckoff_candidates(self, pos, d_min_squared):
+
+    def get_wyckoff_candidates(self, pos, d_min_squared, npoints):
         """
         This function generates all unique sets of atomic positions from a Wyckoff position's symmetry operations,
         on a grid of allowed free-varibles (with *n* equi-distant points on [0,1]) (e.g. n x n x n grid if all a 
@@ -60,7 +63,7 @@ class HierarchicalStructureGeneration:
         Args:
             pos (list): Symmetry operations of the Wyckoff position
             npoints (int): number of equi-distant points on [0,1] for generation of the free-variable grid.
-            d_min_squared (float): If given, squared distance between each atom pair in the generated set of positions 
+            d_min_squared (float): If given, squared distance between each atom pair in the generated set of positions
                 is compared to filter out unphysical structures.
         Returns:
             A set of *sets of atomic positions* generated satisfying the symmetry and distance constraints.
@@ -70,7 +73,7 @@ class HierarchicalStructureGeneration:
         grid_xyz=[]
         for i in self.active_dim(pos):
             if i:
-                grid_xyz.append(np.linspace(0,1.0,self.npoints,endpoint=False))
+                grid_xyz.append(np.linspace(0,1.0,npoints,endpoint=False))
             else:
                 grid_xyz.append([0]) # if dimension is not active.
 
@@ -80,7 +83,7 @@ class HierarchicalStructureGeneration:
                                      grid_xyz[1],
                                      grid_xyz[2]):
             wyckoff_positions = []
-            for so in pos: #apply symmetry operations of the wyckoff 
+            for so in pos: #apply symmetry operations of the wyckoff
                 product = so.operate(xyz) # applies both rotation and translation.
                 warped = self.warp(product)    # make sure sites remain within the unit cells
                 wyckoff_positions.append(tuple(warped))
@@ -99,23 +102,34 @@ class HierarchicalStructureGeneration:
                 if skip_str:
                     continue
                 candidates.append(wyckoff_positions)
-        self.candidates = set(candidates) 
+        self.candidates = set(candidates)
         return self.candidates
-    
+
     def get_possible_combinations(self, target_n_atoms):
         """
-        Helper function to find all possible combinatios of Wyckoff positions of a given space group
+        Helper function to find all possible combinations of Wyckoff positions of a given space group
              that would satisfy the target atom count.
+        Args:
+            target_n_atoms (int): number of atoms to fit to Wyckoff sites
+        Returns:
+            list of tuples with Wyckoff site multiplicities that add up to target_n_atoms
         """
-        self.combinations = [q for i in range(len(self.multiplicities), 0, -1) 
+        self.combinations = [q for i in range(len(self.multiplicities), 0, -1)
               for q in itertools.combinations_with_replacement(enumerate(self.multiplicities), i) if sum([k[1] for k in q]) == target_n_atoms]
         return self.combinations
-    
+
     @staticmethod
     def active_dim(pos):
-        """Helper function that checks if the wyckoff position has free variables"""
-        return pos[0].rotation_matrix.sum(axis=0) != 0  
-    
+        """
+        Helper function that checks if the wyckoff position has free variables
+        Args:
+            pos (list of Pymatgen SymmOp objects): Wyckoff symmetry operations of a spacegroup
+        Returns:
+            True if Wyckoff site contains degrees of freedom for atom position
+
+        """
+        return pos[0].rotation_matrix.sum(axis=0) != 0
+
     @staticmethod
     def warp(coord):
         """
@@ -124,15 +138,20 @@ class HierarchicalStructureGeneration:
         for i in range(3):
             coord[i]=coord[i]%1
         return coord
-    
-    
-    def get_structure_grid(self, top_X_combinations = -1):
+
+
+    def get_structure_grid(self, npoints, top_X_combinations = -1):
         """
         Combining groups of wyckoff: sites satisfying composition requirements, and filtering
         out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
         by two different species.
+        Args:
+        top_X_combinations (int): number of wyckoff configurations to generate structures for
+
+        Returns:
+            list of structures which span the grid
         """
-        filter_combinations=[]
+        filtered_strucs=[]
         for i in itertools.product(*[self.get_possible_combinations(a[0]) for a in self.atoms]):
             counter = np.zeros(len(self.wyckoffs))
             for j in i:
@@ -140,12 +159,12 @@ class HierarchicalStructureGeneration:
                     counter[k[0]] +=1
             t = np.argwhere( counter> 1 ).flatten()
             if False not in np.isin(t,self.all_active_wyckoffs):
-                filter_combinations.append(i)
-        
-        self.filter_combinations = filter_combinations
+                filtered_strucs.append(i)
+
+        self.filter_combinations = filtered_strucs
         self.filter_combinations = sorted(self.filter_combinations,key=lambda x: sum([len(i) for i in x]))
-         
-        filter_further = []
+
+        final_strucs = []
 
         counter=0
         for combin in self.filter_combinations[:top_X_combinations]:
@@ -165,11 +184,12 @@ class HierarchicalStructureGeneration:
                 print('{}.{}: Elem self loop: {}'.format(counter, combin, elem))
                 for site in elem_group:
                     _g.append(list(self.get_wyckoff_candidates(pos=self.wyckoffs[site[0]],
-                                                               d_min_squared=d_min_squared)))
+                                                           d_min_squared=d_min_squared,
+                                                               npoints = npoints)))
                 within_elem_group = list(itertools.product(*_g))
 
                 _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
-                
+
                 good_strs_within_elem_group = []
                 for struct in tqdm(within_elem_group):
                     skip_str = False
@@ -197,7 +217,7 @@ class HierarchicalStructureGeneration:
                 if atom>0:
                     print('{}.{}:  Elem pairs loop: {}'.format(counter, combin, elem))
                     good_structures_merged = []
-                    for structs in tqdm( itertools.product(rolling_good_base_strs, good_strs_within_elem_group), 
+                    for structs in tqdm( itertools.product(rolling_good_base_strs, good_strs_within_elem_group),
                                        total=len(rolling_good_base_strs)*len(good_strs_within_elem_group)):
                         skip_str = False
                         for i in range(len(structs[0])):
@@ -205,7 +225,7 @@ class HierarchicalStructureGeneration:
                             atomgroup1 = structs[0][i]
                             atomgroup2 = structs[1][0]
                             pair = '-'.join(sorted([self.atoms[i][1], self.atoms[atom][1]]))
-                            _d_tol_squared = max( self.d_mins_squared.get(pair, 0), self.d_tol_squared)     
+                            _d_tol_squared = max( self.d_mins_squared.get(pair, 0), self.d_tol_squared)
                             for s1,s2 in itertools.product(atomgroup1,atomgroup2):
                                 if np.sum( (self.lattice.get_cartesian_coords(
                                                             np.array(s1))
@@ -218,11 +238,11 @@ class HierarchicalStructureGeneration:
                         if not skip_str:
                             good_structures_merged.append(structs[0]+[structs[1][0]])
                     rolling_good_base_strs = good_structures_merged
-            filter_further+=rolling_good_base_strs
+            final_strucs+=rolling_good_base_strs
             counter+=1
-        
-        self.filter_further = filter_further
-        return filter_further
-    
+
+        self.final_strucs = final_strucs
+        return final_strucs
+
     def get_structure_vecs(self):
         pass
