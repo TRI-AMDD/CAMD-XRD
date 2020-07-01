@@ -4,7 +4,7 @@ from pymatgen import Structure
 from pymatgen import Lattice
 from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
-
+from pymatgen.core import Structure
 class HierarchicalStructureGeneration:
     """
     **Input:** Space group, lattice parameters, number of atoms for each element-type in the unit cell, and pair-wise minimum distances allowed.
@@ -53,6 +53,21 @@ class HierarchicalStructureGeneration:
         self.multiplicities = [len(w) for w in self.wyckoffs]
 
         self.all_active_wyckoffs = np.array([i for i in range(len(self.wyckoffs)) if sum(self.active_dim(self.wyckoffs[i]))>0])
+
+        filtered_strucs = []
+        for i in itertools.product(*[self.get_possible_combinations(a[0]) for a in self.atoms]):
+            counter = np.zeros(len(self.wyckoffs))
+            for j in i:
+                for k in j:
+                    counter[k[0]] += 1
+            t = np.argwhere(counter > 1).flatten()
+            if False not in np.isin(t, self.all_active_wyckoffs):
+                filtered_strucs.append(i)
+
+        self.filter_combinations = filtered_strucs
+        self.filter_combinations = sorted(self.filter_combinations, key=lambda x: sum([len(i) for i in x]))
+
+
 
     def get_wyckoff_candidates(self, pos, d_min_squared, npoints):
         """
@@ -139,6 +154,35 @@ class HierarchicalStructureGeneration:
             coord[i]=coord[i]%1
         return coord
 
+    def get_random_struc(self, combination_index):
+        """
+        Gets a random structure of a specified wyckoff configuration
+        Args:
+            combination_index (int): index of attribute filter_combinations which corresponds to the desired Wyckoff sites
+
+        Returns:
+            Random Pymategen structure with given Wyckoff sites
+        """
+
+
+        coords = []
+        for combin in self.filter_combinations[combination_index]:
+            xyz = np.random.rand(3)
+            print(combin[0])
+            for atom in combin:
+                wyckoff_ops = self.wyckoffs[atom[0]]
+                for op in wyckoff_ops:
+
+                    coords.append(self.warp(op.operate(xyz)))
+        print(len(coords))
+
+        species = []
+        for element in self.atoms:
+            for multiplicity in range(element[0]):
+                species.append(element[1])
+
+        return Structure(self.lattice, species, coords)
+
 
     def get_structure_grid(self, npoints, top_X_combinations = -1):
         """
@@ -146,23 +190,11 @@ class HierarchicalStructureGeneration:
         out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
         by two different species.
         Args:
-        top_X_combinations (int): number of wyckoff configurations to generate structures for
+            top_X_combinations (int): number of wyckoff configurations to generate structures for
 
         Returns:
-            list of structures which span the grid
+            list of structure coordinates which span the grid
         """
-        filtered_strucs=[]
-        for i in itertools.product(*[self.get_possible_combinations(a[0]) for a in self.atoms]):
-            counter = np.zeros(len(self.wyckoffs))
-            for j in i:
-                for k in j:
-                    counter[k[0]] +=1
-            t = np.argwhere( counter> 1 ).flatten()
-            if False not in np.isin(t,self.all_active_wyckoffs):
-                filtered_strucs.append(i)
-
-        self.filter_combinations = filtered_strucs
-        self.filter_combinations = sorted(self.filter_combinations,key=lambda x: sum([len(i) for i in x]))
 
         final_strucs = []
 
