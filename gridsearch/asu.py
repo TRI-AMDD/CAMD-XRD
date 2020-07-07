@@ -1,3 +1,5 @@
+from __future__ import absolute_import, division, print_function
+import string
 
 class slots_getstate_setstate(object):
   """
@@ -45,9 +47,6 @@ class slots_getstate_setstate(object):
     for name,value in state.items(): setattr(self, name, value)
 
 
-from __future__ import absolute_import, division, print_function
-
-import string
 
 
 class cut_expr_ops(slots_getstate_setstate):
@@ -114,7 +113,6 @@ class cut(cut_expr_ops):
     __slots__ = ["n", "c", "inclusive", "cut_expr"]
 
     def __init__(self, n, c, inclusive=True, cut_expr=None):
-        #     print(type(cut_expr))
         assert inclusive in (True, False)
         #     assert cut_expr is None or isinstance(cut_expr, cut_expr_ops)
         self.n = tuple(n)
@@ -122,7 +120,6 @@ class cut(cut_expr_ops):
         self.inclusive = inclusive
         self.cut_expr = cut_expr
 
-    #     print(self.n, self.c)
     def __repr__(self):
         s = self.base_symbol()
         if (not self.inclusive): s = "+" + s
@@ -180,7 +177,6 @@ class cut(cut_expr_ops):
         for i in range(3):
             result += self.n[i] * point[i]
 
-        #     print(self.n, self.c, result)
         return result
 
     def is_inside(self, point):
@@ -196,7 +192,6 @@ class direct_space_asu(object):
     def __init__(self, hall_symbol, cuts=[]):
         self.hall_symbol = hall_symbol
         self.cuts = cuts[:]
-        print(self.cuts)
 
     def __copy__(self):
         return direct_space_asu(
