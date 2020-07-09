@@ -105,9 +105,7 @@ class HierarchicalStructureGeneration:
                 product = so.operate(xyz) # applies both rotation and translation.
 
                 warped = self.warp(product)    # make sure sites remain within the unit cells
-                print(warped, self.warp_origin(warped))
                 if so == pos[0] and not self.asu.is_inside(self.warp_origin(warped)):
-                    print(self.warp_origin(warped))
                     break
 
                 wyckoff_positions.append(tuple(warped))
