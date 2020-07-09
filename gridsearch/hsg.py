@@ -258,10 +258,7 @@ class HierarchicalStructureGeneration:
 
 
             if atom == 0:
-                if good_strs_within_elem_group:
-                    rolling_good_base_strs = [good_strs_within_elem_group[0]]
-                else:
-                    rolling_good_base_strs = good_strs_within_elem_group
+                rolling_good_base_strs = good_strs_within_elem_group
 
             # NOW; we will combine good_strs_within_elem_group and rolling_good_base_strs and
             # remove if any bad structures accross these.
