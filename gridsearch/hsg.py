@@ -195,30 +195,6 @@ class HierarchicalStructureGeneration:
 
         return Structure(self.lattice, species, coords)
 
-    def get_structure_grids_parallel(self, npoints, top_X_combinations=-1, processes = 4):
-        """
-        Run get_structure_grid on multiple threads for the configurations with lowest Wyckoff symmetry sites
-        Args:
-            npoints (int): number of grid points to search along the unit cell for unique Wyckoff configurations
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
-            processes (int): number of threads for multiprocessing
-        Returns:
-            list of coordinates for structures which span the grid, for each specified Wyckoff configuration
-        """
-
-        final_strucs = Parallel(n_jobs=processes)(delayed(self.get_structure_grid)(npoints, combination) for combination in range(len(self.filter_combinations[:top_X_combinations])))
-
-        # pool = Pool(processes)
-        #
-        #
-        #
-        #
-        # with pool as p:
-        #     final_strucs = p.starmap_async(self.get_structure_grid, [(npoints, combination) for combination in range(len(self.filter_combinations[:top_X_combinations]))])
-        self.final_strucs = final_strucs
-        print(type(final_strucs))
-        return final_strucs
-
     def get_structure_grid(self, npoints, combination = 0):
         """
         Combining groups of wyckoff: sites satisfying composition requirements, and filtering
@@ -345,7 +321,7 @@ class HierarchicalStructureGeneration:
                 else:
                     d_min_squared = None
 
-                # FIRST WE WILL GET WYCKOFF SITE GRIDS; 
+                # FIRST WE WILL GET WYCKOFF SITE GRIDS;
                 # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
                 _g = []
                 print('{}.{}: Elem self loop: {}'.format(counter, combin, elem))
