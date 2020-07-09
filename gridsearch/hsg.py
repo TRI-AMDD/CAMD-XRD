@@ -6,6 +6,10 @@ from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
 from pymatgen.core import Structure
 from multiprocessing import Pool
+import asu
+from asu import *
+from joblib import Parallel, delayed
+
 class HierarchicalStructureGeneration:
     """
     **Input:** Space group, lattice parameters, number of atoms for each element-type in the unit cell, and pair-wise minimum distances allowed.
@@ -25,7 +29,7 @@ class HierarchicalStructureGeneration:
 
     **Returns:** A list of feasible sets of atomic positions that satisfy the composition, symmetry and distance constraints.
     """
-    def __init__(self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None):
+    def __init__(self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, asu = asu.asu_001()):
         """
         Args:
             - spg (int): space group
@@ -44,9 +48,8 @@ class HierarchicalStructureGeneration:
         self.atoms = sorted(atoms)
         self.d_tol = d_tol
         self.d_mins = d_mins if d_mins else {}
-
         self.lattice = Lattice.from_parameters(a,b,c,alpha,beta,gamma)
-
+        self.asu = asu
         self.d_tol_squared = self.d_tol**2 # general overlap distance threshold
         self.d_mins_squared = {k: v**2 for k,v in self.d_mins.items()}
 
@@ -67,7 +70,6 @@ class HierarchicalStructureGeneration:
 
         self.filter_combinations = filtered_strucs
         self.filter_combinations = sorted(self.filter_combinations, key=lambda x: sum([len(i) for i in x]))
-
 
 
     def get_wyckoff_candidates(self, pos, d_min_squared, npoints):
@@ -101,23 +103,27 @@ class HierarchicalStructureGeneration:
             wyckoff_positions = []
             for so in pos: #apply symmetry operations of the wyckoff
                 product = so.operate(xyz) # applies both rotation and translation.
+
                 warped = self.warp(product)    # make sure sites remain within the unit cells
+                if so == pos[0] and not self.asu.is_inside(self.warp_origin(warped)):
+                    break
+
                 wyckoff_positions.append(tuple(warped))
+            else:
+                wyckoff_positions = frozenset(wyckoff_positions) # forming a set will get rid of duplciates (overlaps)
 
-            wyckoff_positions = frozenset(wyckoff_positions) # forming a set will get rid of duplciates (overlaps)
-
-            if len(wyckoff_positions) == len(pos): # if no overlapping sites, store set of wyckoff positions
-                skip_str = False
-                if d_min_squared:
-                    for s1,s2 in itertools.combinations(wyckoff_positions,2):
-                        if np.sum((
-                                    self.lattice.get_cartesian_coords(np.array(s1))
-                                    -self.lattice.get_cartesian_coords(np.array(s2)))**2 )< d_min_squared:
-                            skip_str = True
-                            break
-                if skip_str:
-                    continue
-                candidates.append(wyckoff_positions)
+                if len(wyckoff_positions) == len(pos): # if no overlapping sites, store set of wyckoff positions
+                    skip_str = False
+                    if d_min_squared:
+                        for s1,s2 in itertools.combinations(wyckoff_positions,2):
+                            if np.sum((
+                                        self.lattice.get_cartesian_coords(np.array(s1))
+                                        -self.lattice.get_cartesian_coords(np.array(s2)))**2 )< d_min_squared:
+                                skip_str = True
+                                break
+                    if skip_str:
+                        continue
+                    candidates.append(wyckoff_positions)
         self.candidates = set(candidates)
         return self.candidates
 
@@ -147,14 +153,26 @@ class HierarchicalStructureGeneration:
         return pos[0].rotation_matrix.sum(axis=0) != 0
 
     @staticmethod
-    def warp(coord):
+    def warp_origin(coord):
         """
         Puts fractional coordinates that fall outside back into [0,1].
         """
+        newcoord = []
         for i in range(3):
-            coord[i]=coord[i]%1
-        return coord
+            if coord[i] > 0.5:
+                newcoord.append(coord[i]-1)
+            else:
+                newcoord.append(coord[i])
+        return newcoord
 
+    @staticmethod
+    def warp(coord):
+        """
+        Translates fractional coordinates to the cell closest closest to the origin.
+        """
+        for i in range(3):
+            coord[i] = coord[i] % 1
+        return coord
     def get_random_struc(self, combination_index):
         """
         Gets a random structure of a specified wyckoff configuration
@@ -182,23 +200,6 @@ class HierarchicalStructureGeneration:
                 species.append(element[1])
 
         return Structure(self.lattice, species, coords)
-
-    def get_structure_grids_parallel(self, npoints, top_X_combinations=-1, processes = 4):
-        """
-        Run get_structure_grid on multiple threads for the configurations with lowest Wyckoff symmetry sites
-        Args:
-            npoints (int): number of grid points to search along the unit cell for unique Wyckoff configurations
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
-            processes (int): number of threads for multiprocessing
-        Returns:
-            list of coordinates for structures which span the grid, for each specified Wyckoff configuration
-        """
-        pool = Pool(processes)
-        with pool as p:
-            final_strucs = p.starmap(self.get_structure_grid, [(npoints, combination) for combination in range(len(self.filter_combinations[:top_X_combinations]))])
-        self.final_strucs = final_strucs
-
-        return final_strucs
 
     def get_structure_grid(self, npoints, combination = 0):
         """
@@ -254,6 +255,7 @@ class HierarchicalStructureGeneration:
                     break
                 if not skip_str:
                     good_strs_within_elem_group.append([[i for sub in struct for i in sub]])
+
 
             if atom == 0:
                 rolling_good_base_strs = good_strs_within_elem_group
@@ -317,7 +319,7 @@ class HierarchicalStructureGeneration:
                 else:
                     d_min_squared = None
 
-                # FIRST WE WILL GET WYCKOFF SITE GRIDS; 
+                # FIRST WE WILL GET WYCKOFF SITE GRIDS;
                 # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
                 _g = []
                 print('{}.{}: Elem self loop: {}'.format(counter, combin, elem))
