@@ -103,23 +103,29 @@ class HierarchicalStructureGeneration:
             wyckoff_positions = []
             for so in pos: #apply symmetry operations of the wyckoff
                 product = so.operate(xyz) # applies both rotation and translation.
+
                 warped = self.warp(product)    # make sure sites remain within the unit cells
+                print(warped, self.warp_origin(warped))
+                if so == pos[0] and not self.asu.is_inside(self.warp_origin(warped)):
+                    print(self.warp_origin(warped))
+                    break
+
                 wyckoff_positions.append(tuple(warped))
+            else:
+                wyckoff_positions = frozenset(wyckoff_positions) # forming a set will get rid of duplciates (overlaps)
 
-            wyckoff_positions = frozenset(wyckoff_positions) # forming a set will get rid of duplciates (overlaps)
-
-            if len(wyckoff_positions) == len(pos): # if no overlapping sites, store set of wyckoff positions
-                skip_str = False
-                if d_min_squared:
-                    for s1,s2 in itertools.combinations(wyckoff_positions,2):
-                        if np.sum((
-                                    self.lattice.get_cartesian_coords(np.array(s1))
-                                    -self.lattice.get_cartesian_coords(np.array(s2)))**2 )< d_min_squared:
-                            skip_str = True
-                            break
-                if skip_str:
-                    continue
-                candidates.append(wyckoff_positions)
+                if len(wyckoff_positions) == len(pos): # if no overlapping sites, store set of wyckoff positions
+                    skip_str = False
+                    if d_min_squared:
+                        for s1,s2 in itertools.combinations(wyckoff_positions,2):
+                            if np.sum((
+                                        self.lattice.get_cartesian_coords(np.array(s1))
+                                        -self.lattice.get_cartesian_coords(np.array(s2)))**2 )< d_min_squared:
+                                skip_str = True
+                                break
+                    if skip_str:
+                        continue
+                    candidates.append(wyckoff_positions)
         self.candidates = set(candidates)
         return self.candidates
 
@@ -157,7 +163,9 @@ class HierarchicalStructureGeneration:
         for i in range(3):
             if coord[i] > 0.5:
                 newcoord.append(coord[i]-1)
-        return coord
+            else:
+                newcoord.append(coord[i])
+        return newcoord
 
     @staticmethod
     def warp(coord):
@@ -251,9 +259,9 @@ class HierarchicalStructureGeneration:
                     good_strs_within_elem_group.append([[i for sub in struct for i in sub]])
 
 
-                for grid in good_strs_within_elem_group:
-                    if not self.asu.is_inside(self.warp_origin(grid[0][0])):
-                        good_strs_within_elem_group.remove(grid)
+                # for grid in good_strs_within_elem_group:
+                #     if not self.asu.is_inside(self.warp_origin(grid[0][0])):
+                #         good_strs_within_elem_group.remove(grid)
 
 
             if atom == 0:
