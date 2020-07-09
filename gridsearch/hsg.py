@@ -259,11 +259,6 @@ class HierarchicalStructureGeneration:
                     good_strs_within_elem_group.append([[i for sub in struct for i in sub]])
 
 
-                # for grid in good_strs_within_elem_group:
-                #     if not self.asu.is_inside(self.warp_origin(grid[0][0])):
-                #         good_strs_within_elem_group.remove(grid)
-
-
             if atom == 0:
                 if good_strs_within_elem_group:
                     rolling_good_base_strs = [good_strs_within_elem_group[0]]
