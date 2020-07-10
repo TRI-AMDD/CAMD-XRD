@@ -10,6 +10,8 @@ import asu
 from asu import *
 from joblib import Parallel, delayed
 
+# TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
+
 
 class HierarchicalStructureGeneration:
     """
@@ -43,7 +45,7 @@ class HierarchicalStructureGeneration:
         atoms,
         d_tol,
         d_mins=None,
-        asu=asu.asu_001(),
+        use_asu=False,
     ):
         """
         Args:
@@ -53,6 +55,7 @@ class HierarchicalStructureGeneration:
             - atoms (list): List of tuples species in the form [# of atoms, 'Species'] e.g. [(4,'Pb'), (16,'O'), (4,'S')]
             - d_tol (float): general minimum distance between atoms in cell in Angstroms
             - d_mins (dict): Element pair specific minimum distances bewtween atoms in cell e.g. {'Pb': 1.5*2, 'S': 1.70*2, 'O': 2.1, 'O-Pb': 2.4, 'Pb-S': 3.0}
+            - use_asu (bool): consider asymmetric unit
         Returns:
             HierarchicalStructureGeneration object
         
@@ -64,9 +67,12 @@ class HierarchicalStructureGeneration:
         self.d_tol = d_tol
         self.d_mins = d_mins if d_mins else {}
         self.lattice = Lattice.from_parameters(a, b, c, alpha, beta, gamma)
-        self.asu = asu
+        self.use_asu = use_asu
         self.d_tol_squared = self.d_tol ** 2  # general overlap distance threshold
         self.d_mins_squared = {k: v ** 2 for k, v in self.d_mins.items()}
+
+        if use_asu:
+            self._asu = getattr(asu, 'asu_{}'.format(str(spg).rjust(3, '0')))()
 
         self.wyckoffs = get_wyckoffs(spg)
         self.multiplicities = [len(w) for w in self.wyckoffs]
@@ -122,8 +128,9 @@ class HierarchicalStructureGeneration:
         candidates = []
         # forming a meshgrid for free x, y, and/or z parameters for the wyckoff site.
         for xyz in itertools.product(grid_xyz[0], grid_xyz[1], grid_xyz[2]):
-            # if not self.asu.is_inside(xyz):
-            #     continue
+            if self.use_asu:
+                if not self._asu.is_inside(xyz):
+                    continue
             wyckoff_positions = []
             for so in pos:  # apply symmetry operations of the wyckoff
                 product = so.operate(xyz)  # applies both rotation and translation.
