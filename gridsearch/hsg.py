@@ -249,124 +249,6 @@ class HierarchicalStructureGeneration:
 
         return Structure(self.lattice, species, coords)
 
-    def get_structure_grid(self, npoints, combination=0):
-        """
-        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
-        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
-        by two different species.
-        Args:
-            npoints (int): number of grid points to search along the unit cell for unique Wyckoff configurations
-            combination (int): index of wyckoff configurations in filter_combinations to generate structures for
-
-        Returns:
-            list of structure coordinates which span the grid
-        """
-
-        final_strucs = []
-        counter = 0
-        combin = self.filter_combinations[combination]
-        rolling_good_base_strs = []
-        for atom in range(len(combin)):
-            elem_group = combin[atom]
-            elem = self.atoms[atom][1]
-            if elem in self.d_mins_squared:
-                d_min_squared = self.d_mins_squared[elem]
-            else:
-                d_min_squared = None
-
-            # FIRST WE WILL GET WYCKOFF SITE GRIDS;
-            # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
-            _g = []
-            print("{}.{}: Elem self loop: {}".format(combination, combin, elem))
-            for site in elem_group:
-                _g.append(
-                    list(
-                        self.get_wyckoff_candidates(
-                            pos=self.wyckoffs[site[0]],
-                            d_min_squared=d_min_squared,
-                            npoints=npoints,
-                        )
-                    )
-                )
-            within_elem_group = list(itertools.product(*_g))
-
-            _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
-
-            good_strs_within_elem_group = []
-            for struct in tqdm(within_elem_group):
-                skip_str = False
-                for sub_pairs in itertools.combinations(struct, 2):
-                    for s1, s2 in itertools.product(*sub_pairs):
-                        if (
-                            np.sum(
-                                (
-                                    self.lattice.get_cartesian_coords(np.array(s1))
-                                    - self.lattice.get_cartesian_coords(np.array(s2))
-                                )
-                                ** 2
-                            )
-                            < _d_tol_squared
-                        ):
-                            skip_str = True
-                            break
-                    else:
-                        continue
-                    break
-                if not skip_str:
-                    good_strs_within_elem_group.append(
-                        [[i for sub in struct for i in sub]]
-                    )
-
-            if atom == 0:
-                rolling_good_base_strs = good_strs_within_elem_group
-
-            # NOW; we will combine good_strs_within_elem_group and rolling_good_base_strs and
-            # remove if any bad structures accross these.
-
-            if atom > 0:
-                print("{}.{}:  Elem pairs loop: {}".format(counter, combin, elem))
-                good_structures_merged = []
-                for structs in tqdm(
-                    itertools.product(
-                        rolling_good_base_strs, good_strs_within_elem_group
-                    ),
-                    total=len(rolling_good_base_strs)
-                    * len(good_strs_within_elem_group),
-                ):
-                    skip_str = False
-                    for i in range(len(structs[0])):
-                        # different atoms of previous kind
-                        atomgroup1 = structs[0][i]
-                        atomgroup2 = structs[1][0]
-                        pair = "-".join(sorted([self.atoms[i][1], self.atoms[atom][1]]))
-                        _d_tol_squared = max(
-                            self.d_mins_squared.get(pair, 0), self.d_tol_squared
-                        )
-                        for s1, s2 in itertools.product(atomgroup1, atomgroup2):
-                            if (
-                                np.sum(
-                                    (
-                                        self.lattice.get_cartesian_coords(np.array(s1))
-                                        - self.lattice.get_cartesian_coords(
-                                            np.array(s2)
-                                        )
-                                    )
-                                    ** 2
-                                )
-                                < _d_tol_squared
-                            ):
-                                skip_str = True
-                                break
-                        if skip_str:
-                            break
-                    if not skip_str:
-                        good_structures_merged.append(structs[0] + [structs[1][0]])
-                rolling_good_base_strs = good_structures_merged
-        final_strucs += rolling_good_base_strs
-
-        self.final_strucs = final_strucs
-        return final_strucs
-
     def get_structure_grids(self, npoints, top_X_combinations=-1):
         """
         Combining groups of wyckoff: sites satisfying composition requirements, and filtering
@@ -503,12 +385,19 @@ class HierarchicalStructureGeneration:
         backend="loky",
     ):
         """
+        Warning: this is the parallel version of get_structure_grids. Since the atomic tasks are extremely fast
+        get_structure_grids can be much faster if npoints is small. If npoints is large, by dispatching large
+        batches (e.g. 100k) - notable parallelization speedup might happen as overhead is overcome.
+
         Combining groups of wyckoff: sites satisfying composition requirements, and filtering
         out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
         by two different species.
         Args:
             npoints (int): number of grid points to search along the unit cell for unique Wyckoff configurations
             top_X_combinations (int): number of wyckoff configurations to generate structures for
+            n_jobs (int): number of processes or threads to use. defaults to -1 (all).
+            batch_size (int, str): see joblib.Parallel
+            backend (str): see joblib.Parallel
 
         Returns:
             list of structure coordinates which span the grid
