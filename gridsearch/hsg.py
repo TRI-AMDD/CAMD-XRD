@@ -1,13 +1,10 @@
 import itertools
 import numpy as np
-from pymatgen import Structure
+import json
 from pymatgen import Lattice
 from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
 from pymatgen.core import Structure
-from multiprocessing import Pool
-import asu
-from asu import *
 from joblib import Parallel, delayed
 
 # TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
@@ -34,18 +31,7 @@ class HierarchicalStructureGeneration:
     """
 
     def __init__(
-        self,
-        spg,
-        a,
-        b,
-        c,
-        alpha,
-        beta,
-        gamma,
-        atoms,
-        d_tol,
-        d_mins=None,
-        use_asu=False,
+        self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
     ):
         """
         Args:
@@ -70,12 +56,16 @@ class HierarchicalStructureGeneration:
         self.use_asu = use_asu
         self.d_tol_squared = self.d_tol ** 2  # general overlap distance threshold
         self.d_mins_squared = {k: v ** 2 for k, v in self.d_mins.items()}
-
-        if use_asu:
-            self._asu = getattr(asu, 'asu_{}'.format(str(spg).rjust(3, '0')))()
-
         self.wyckoffs = get_wyckoffs(spg)
         self.multiplicities = [len(w) for w in self.wyckoffs]
+
+        if use_asu:
+            # TODO: Need to have package data management in the long term
+            with open("asu_data.json", "r") as f:
+                asu_data = json.load(f)
+            self.ppipe = parse_asu(asu_data[str(self.spg)])
+        else:
+            self.ppipe = None
 
         self.all_active_wyckoffs = np.array(
             [
@@ -119,18 +109,27 @@ class HierarchicalStructureGeneration:
         """
 
         grid_xyz = []
-        for i in self.active_dim(pos):
-            if i:
-                grid_xyz.append(np.linspace(0, 1.0, npoints, endpoint=False))
+        # if self.use_asu:
+        #         continue
+
+        for i in range(3):
+            if self.active_dim(pos)[i]:
+                if self.use_asu:
+                    grid_xyz.append(
+                        get_linspace(
+                            *self.ppipe[0][i],
+                            npoints=npoints,
+                            include_bounds=self.ppipe[1][i]
+                        )
+                    )
+                else:
+                    grid_xyz.append(np.linspace(0, 1, npoints, endpoint=True))
             else:
                 grid_xyz.append([0])  # if dimension is not active.
 
         candidates = []
         # forming a meshgrid for free x, y, and/or z parameters for the wyckoff site.
         for xyz in itertools.product(grid_xyz[0], grid_xyz[1], grid_xyz[2]):
-            if self.use_asu:
-                if not self._asu.is_inside(xyz):
-                    continue
             wyckoff_positions = []
             for so in pos:  # apply symmetry operations of the wyckoff
                 product = so.operate(xyz)  # applies both rotation and translation.
@@ -531,3 +530,44 @@ def struct_func(structs, atom, atoms, d_mins_squared, d_tol_squared, lattice):
         return structs[0] + [structs[1][0]]
     else:
         return None
+
+
+def get_linspace(ll, ul, npoints=10, include_bounds=None):
+    """
+    Helper function to construct linspace obeying inequality conditions at limits
+    """
+    if not include_bounds:
+        include_bounds = [True, True]
+    endpoint = False
+    if include_bounds[1]:
+        endpoint = True
+    _np = npoints
+    _ = 0
+    if not include_bounds[0]:
+        _np = npoints + 1
+        _ = 1
+    return np.linspace(ll, ul, _np, endpoint=endpoint)[_:]
+
+
+def parse_asu(p):
+    """
+    Helper function to parse limits from asu_data
+    """
+    def _t(t):
+        if t[0] == "<":
+            val = eval(t.split("<")[1].replace("=", ""))
+        else:
+            val = eval(t.split("<")[0].replace("=", ""))
+        return val, "<=" in t
+
+    c = ["x", "y", "z"]
+    lims, ends = [], []
+    for i in range(3):
+        l, e = [], []
+        for t in p[i].split(c[i]):
+            m, r = _t(t)
+            l.append(m)
+            e.append(r)
+        lims.append(l)
+        ends.append(e)
+    return lims, ends
