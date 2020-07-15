@@ -234,7 +234,6 @@ class HierarchicalStructureGeneration:
         coords = []
         for combin in self.filter_combinations[combination_index]:
             xyz = np.random.rand(3)
-            print(combin[0])
             for atom in combin:
                 wyckoff_ops = self.wyckoffs[atom[0]]
                 for op in wyckoff_ops:
@@ -264,34 +263,67 @@ class HierarchicalStructureGeneration:
         final_strucs = []
 
         counter = 0
-        for combin in self.filter_combinations[:top_X_combinations]:
+        for combin in self.filter_combinations[top_X_combinations:top_X_combinations+1]:
             print(counter, combin)
             rolling_good_base_strs = []
             for atom in range(len(combin)):
                 elem_group = combin[atom]
                 elem = self.atoms[atom][1]
+
                 if elem in self.d_mins_squared:
                     d_min_squared = self.d_mins_squared[elem]
                 else:
                     d_min_squared = None
 
+                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
                 # FIRST WE WILL GET WYCKOFF SITE GRIDS;
                 # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
                 _g = []
                 print("{}.{}: Elem self loop: {}".format(counter, combin, elem))
-                for site in elem_group:
-                    _g.append(
-                        list(
-                            self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[site[0]],
-                                d_min_squared=d_min_squared,
-                                npoints=npoints,
+
+                passed = []
+                for site1 in elem_group:
+
+                    # check for exchange duplicates if there is the same wyckoff site within the same element
+                    multiple = 0
+                    if site1 in passed:
+                        continue
+                    for site2 in elem_group:
+
+                        if site1 == site2:
+                            multiple += 1
+                    passed.append(site1)
+
+                    if multiple == 1:
+                        _g.append(
+                            list(
+                                self.get_wyckoff_candidates(
+                                    pos=self.wyckoffs[site1[0]],
+                                    d_min_squared=d_min_squared,
+                                    npoints=npoints
+                                )
                             )
                         )
-                    )
-                within_elem_group = list(itertools.product(*_g))
+                    else:
+                        new_list = []
+                        for sub_pairs in itertools.combinations(self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[site1[0]],
+                                d_min_squared=d_min_squared,
+                                npoints=npoints), multiple):
 
-                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
+                            for s1, s2 in itertools.product(*sub_pairs):
+                                if np.sum((
+                                                  self.lattice.get_cartesian_coords(
+                                                      np.array(s1))
+                                                  - self.lattice.get_cartesian_coords(
+                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                    break
+                            else:
+                                new_list.append(frozenset().union(*sub_pairs))
+
+                        _g.append(new_list)
+
+                within_elem_group = list(itertools.product(*_g))
 
                 good_strs_within_elem_group = []
                 for struct in tqdm(within_elem_group):
@@ -319,7 +351,6 @@ class HierarchicalStructureGeneration:
                         good_strs_within_elem_group.append(
                             [[i for sub in struct for i in sub]]
                         )
-
                 if atom == 0:
                     rolling_good_base_strs = good_strs_within_elem_group
 
