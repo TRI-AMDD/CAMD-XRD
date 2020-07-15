@@ -306,20 +306,26 @@ class HierarchicalStructureGeneration:
                         )
                     else:
                         new_list = []
-                        for sub_pairs in itertools.combinations(self.get_wyckoff_candidates(
+
+                        for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
                                 pos=self.wyckoffs[site1[0]],
                                 d_min_squared=d_min_squared,
                                 npoints=npoints), multiple):
+                            good_str = 1
+                            for group in itertools.product(*wyckoff_groups):
 
-                            for s1, s2 in itertools.product(*sub_pairs):
-                                if np.sum((
-                                                  self.lattice.get_cartesian_coords(
-                                                      np.array(s1))
-                                                  - self.lattice.get_cartesian_coords(
-                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                for s1, s2 in itertools.combinations(group, 2):
+                                    if np.sum((
+                                                      self.lattice.get_cartesian_coords(
+                                                          np.array(s1))
+                                                      - self.lattice.get_cartesian_coords(
+                                                  np.array(s2))) ** 2) < _d_tol_squared:
+                                        good_str = 0
+                                        break
+                                if good_str == 0:
                                     break
                             else:
-                                new_list.append(frozenset().union(*sub_pairs))
+                                new_list.append(frozenset().union(*wyckoff_groups))
 
                         _g.append(new_list)
 
