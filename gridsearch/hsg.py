@@ -263,7 +263,7 @@ class HierarchicalStructureGeneration:
         final_strucs = []
 
         counter = 0
-        for combin in self.filter_combinations[top_X_combinations:top_X_combinations+1]:
+        for combin in self.filter_combinations[:top_X_combinations]:
             print(counter, combin)
             rolling_good_base_strs = []
             for atom in range(len(combin)):
