@@ -234,7 +234,6 @@ class HierarchicalStructureGeneration:
         coords = []
         for combin in self.filter_combinations[combination_index]:
             xyz = np.random.rand(3)
-            print(combin[0])
             for atom in combin:
                 wyckoff_ops = self.wyckoffs[atom[0]]
                 for op in wyckoff_ops:
@@ -270,28 +269,67 @@ class HierarchicalStructureGeneration:
             for atom in range(len(combin)):
                 elem_group = combin[atom]
                 elem = self.atoms[atom][1]
+
                 if elem in self.d_mins_squared:
                     d_min_squared = self.d_mins_squared[elem]
                 else:
                     d_min_squared = None
 
+                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
                 # FIRST WE WILL GET WYCKOFF SITE GRIDS;
                 # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
                 _g = []
                 print("{}.{}: Elem self loop: {}".format(counter, combin, elem))
-                for site in elem_group:
-                    _g.append(
-                        list(
-                            self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[site[0]],
-                                d_min_squared=d_min_squared,
-                                npoints=npoints,
+
+                passed = []
+                for site1 in elem_group:
+
+                    # check for exchange duplicates if there is the same wyckoff site within the same element
+                    multiple = 0
+                    if site1 in passed:
+                        continue
+                    for site2 in elem_group:
+
+                        if site1 == site2:
+                            multiple += 1
+                    passed.append(site1)
+
+                    if multiple == 1:
+                        _g.append(
+                            list(
+                                self.get_wyckoff_candidates(
+                                    pos=self.wyckoffs[site1[0]],
+                                    d_min_squared=d_min_squared,
+                                    npoints=npoints
+                                )
                             )
                         )
-                    )
-                within_elem_group = list(itertools.product(*_g))
+                    else:
+                        new_list = []
 
-                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
+                        for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[site1[0]],
+                                d_min_squared=d_min_squared,
+                                npoints=npoints), multiple):
+                            good_str = 1
+                            for group in itertools.product(*wyckoff_groups):
+
+                                for s1, s2 in itertools.combinations(group, 2):
+                                    if np.sum((
+                                                      self.lattice.get_cartesian_coords(
+                                                          np.array(s1))
+                                                      - self.lattice.get_cartesian_coords(
+                                                  np.array(s2))) ** 2) < _d_tol_squared:
+                                        good_str = 0
+                                        break
+                                if good_str == 0:
+                                    break
+                            else:
+                                new_list.append(frozenset().union(*wyckoff_groups))
+
+                        _g.append(new_list)
+
+                within_elem_group = list(itertools.product(*_g))
 
                 good_strs_within_elem_group = []
                 for struct in tqdm(within_elem_group):
@@ -319,7 +357,6 @@ class HierarchicalStructureGeneration:
                         good_strs_within_elem_group.append(
                             [[i for sub in struct for i in sub]]
                         )
-
                 if atom == 0:
                     rolling_good_base_strs = good_strs_within_elem_group
 
@@ -416,23 +453,58 @@ class HierarchicalStructureGeneration:
                 else:
                     d_min_squared = None
 
+                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
                 # FIRST WE WILL GET WYCKOFF SITE GRIDS;
                 # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
                 _g = []
                 print("{}.{}: Elem self loop: {}".format(counter, combin, elem))
-                for site in elem_group:
-                    _g.append(
-                        list(
-                            self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[site[0]],
-                                d_min_squared=d_min_squared,
-                                npoints=npoints,
+                passed = []
+                for site1 in elem_group:
+                    multiple = 0
+                    if site1 in passed:
+                        continue
+                    for site2 in elem_group:
+
+                        if site1 == site2:
+                            multiple += 1
+                    passed.append(site1)
+
+                    if multiple == 1:
+                        _g.append(
+                            list(
+                                self.get_wyckoff_candidates(
+                                    pos=self.wyckoffs[site1[0]],
+                                    d_min_squared=d_min_squared,
+                                    npoints=npoints
+                                )
                             )
                         )
-                    )
-                within_elem_group = list(itertools.product(*_g))
+                    else:
+                        new_list = []
 
-                _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
+                        for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[site1[0]],
+                                d_min_squared=d_min_squared,
+                                npoints=npoints), multiple):
+                            good_str = 1
+                            for group in itertools.product(*wyckoff_groups):
+
+                                for s1, s2 in itertools.combinations(group, 2):
+                                    if np.sum((
+                                                      self.lattice.get_cartesian_coords(
+                                                          np.array(s1))
+                                                      - self.lattice.get_cartesian_coords(
+                                                  np.array(s2))) ** 2) < _d_tol_squared:
+                                        good_str = 0
+                                        break
+                                if good_str == 0:
+                                    break
+                            else:
+                                new_list.append(frozenset().union(*wyckoff_groups))
+
+                        _g.append(new_list)
+
+                within_elem_group = list(itertools.product(*_g))
 
                 good_strs_within_elem_group = Parallel(
                     n_jobs=n_jobs, batch_size=batch_size, backend=backend, verbose=1
