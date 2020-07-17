@@ -16,10 +16,10 @@ def get_minimum_distances(formula, tol=0.15, glue=None, polya=None):
         (v)   'La4S3N2', glue=['S','N']
     Args:
         - formula (str): chemical formula of the compound.
-        - tol (float): tolerance factor over the distance limits calculated from ionin radii.
-        - glue (str) or (list): element(s) that can be viewed as filling in-between the cations or 'auto'.
+        - tol (float): tolerance factor over the distance limits calculated from ionic radii.
+        - glue (str) or (list): element(s) that can be viewed as filling in-between the cations.
             Often the most abundant element is the best to use. Defaults to None.
-        - polya (list): elements that may form polyanions. if given, further contracts their
+        - polya (list): elements that may form poly-anions. if given, further contracts their
             min separations one more time by tol.
     Returns:
         Dictionary of minimum distances allowed, compatible with HierarchicalStructureGeneration
