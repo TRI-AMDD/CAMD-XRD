@@ -7,6 +7,7 @@ from tqdm.notebook import tqdm
 from pymatgen.core import Structure
 from joblib import Parallel, delayed
 
+
 # TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
 
 
@@ -31,7 +32,7 @@ class HierarchicalStructureGeneration:
     """
 
     def __init__(
-        self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
+            self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
     ):
         """
         Args:
@@ -77,7 +78,7 @@ class HierarchicalStructureGeneration:
 
         filtered_strucs = []
         for i in itertools.product(
-            *[self.get_possible_combinations(a[0]) for a in self.atoms]
+                *[self.get_possible_combinations(a[0]) for a in self.atoms]
         ):
             counter = np.zeros(len(self.wyckoffs))
             for j in i:
@@ -92,7 +93,7 @@ class HierarchicalStructureGeneration:
             self.filter_combinations, key=lambda x: sum([len(i) for i in x])
         )
 
-    def get_wyckoff_candidates(self, pos, d_min_squared, npoints):
+    def get_wyckoff_candidates(self, pos, d_min_squared, density):
         """
         This function generates all unique sets of atomic positions from a Wyckoff position's symmetry operations,
         on a grid of allowed free-varibles (with *n* equi-distant points on [0,1]) (e.g. n x n x n grid if all a 
@@ -101,6 +102,7 @@ class HierarchicalStructureGeneration:
         Args:
             pos (list): Symmetry operations of the Wyckoff position
             npoints (int): number of equi-distant points on [0,1] for generation of the free-variable grid.
+            density (
             d_min_squared (float): If given, squared distance between each atom pair in the generated set of positions
                 is compared to filter out unphysical structures.
         Returns:
@@ -115,6 +117,8 @@ class HierarchicalStructureGeneration:
         for i in range(3):
             if self.active_dim(pos)[i]:
                 if self.use_asu:
+                    npoints = int(np.ceil((self.lattice.parameters[i] * self.ppipe[0][i][1] -
+                                           self.lattice.parameters[i] * self.ppipe[0][i][0]) * density))
                     grid_xyz.append(
                         get_linspace(
                             *self.ppipe[0][i],
@@ -123,6 +127,7 @@ class HierarchicalStructureGeneration:
                         )
                     )
                 else:
+                    npoints = int(np.ceil((self.lattice.parameters[i])*density))
                     grid_xyz.append(np.linspace(0, 1, npoints, endpoint=True))
             else:
                 grid_xyz.append([0])  # if dimension is not active.
@@ -143,22 +148,22 @@ class HierarchicalStructureGeneration:
                 )  # forming a set will get rid of duplciates (overlaps)
 
                 if len(wyckoff_positions) == len(
-                    pos
+                        pos
                 ):  # if no overlapping sites, store set of wyckoff positions
                     skip_str = False
                     if d_min_squared:
                         for s1, s2 in itertools.combinations(wyckoff_positions, 2):
                             if (
-                                np.sum(
-                                    (
-                                        self.lattice.get_cartesian_coords(np.array(s1))
-                                        - self.lattice.get_cartesian_coords(
+                                    np.sum(
+                                        (
+                                                self.lattice.get_cartesian_coords(np.array(s1))
+                                                - self.lattice.get_cartesian_coords(
                                             np.array(s2)
                                         )
+                                        )
+                                        ** 2
                                     )
-                                    ** 2
-                                )
-                                < d_min_squared
+                                    < d_min_squared
                             ):
                                 skip_str = True
                                 break
@@ -237,7 +242,6 @@ class HierarchicalStructureGeneration:
             for atom in combin:
                 wyckoff_ops = self.wyckoffs[atom[0]]
                 for op in wyckoff_ops:
-
                     coords.append(self.warp(op.operate(xyz)))
 
         species = []
@@ -247,7 +251,169 @@ class HierarchicalStructureGeneration:
 
         return Structure(self.lattice, species, coords)
 
-    def get_structure_grids(self, npoints, top_X_combinations=-1):
+    def get_structure_grid(self, density, combination=0):
+        """
+        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
+        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
+        by two different species.
+        Args:
+            npoints (int): number of grid points to search along the unit cell for unique Wyckoff configurations
+            top_X_combinations (int): number of wyckoff configurations to generate structures for
+
+        Returns:
+            list of structure coordinates which span the grid
+        """
+
+        final_strucs = []
+
+        rolling_good_base_strs = []
+
+        combin = self.filter_combinations[combination]
+
+        for atom in range(len(combin)):
+            elem_group = combin[atom]
+            elem = self.atoms[atom][1]
+
+            if elem in self.d_mins_squared:
+                d_min_squared = self.d_mins_squared[elem]
+            else:
+                d_min_squared = None
+
+            _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
+            # FIRST WE WILL GET WYCKOFF SITE GRIDS;
+            # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
+            _g = []
+
+            passed = []
+            for site1 in elem_group:
+
+                # check for exchange duplicates if there is the same wyckoff site within the same element
+                multiple = 0
+                if site1 in passed:
+                    continue
+                for site2 in elem_group:
+
+                    if site1 == site2:
+                        multiple += 1
+                passed.append(site1)
+
+                if multiple == 1:
+                    _g.append(
+                        list(
+                            self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[site1[0]],
+                                d_min_squared=d_min_squared,
+                                density=density
+                            )
+                        )
+                    )
+                else:
+                    new_list = []
+
+                    for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
+                            pos=self.wyckoffs[site1[0]],
+                            d_min_squared=d_min_squared,
+                            density=density), multiple):
+                        good_str = 1
+                        for group in itertools.product(*wyckoff_groups):
+
+                            for s1, s2 in itertools.combinations(group, 2):
+                                if np.sum((
+                                                  self.lattice.get_cartesian_coords(
+                                                      np.array(s1))
+                                                  - self.lattice.get_cartesian_coords(
+                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                    good_str = 0
+                                    break
+                            if good_str == 0:
+                                break
+                        else:
+                            new_list.append(frozenset().union(*wyckoff_groups))
+
+                    _g.append(new_list)
+
+            within_elem_group = list(itertools.product(*_g))
+
+            good_strs_within_elem_group = []
+            for struct in tqdm(within_elem_group):
+                skip_str = False
+                for sub_pairs in itertools.combinations(struct, 2):
+                    for s1, s2 in itertools.product(*sub_pairs):
+                        if (
+                                np.sum(
+                                    (
+                                            self.lattice.get_cartesian_coords(np.array(s1))
+                                            - self.lattice.get_cartesian_coords(
+                                        np.array(s2)
+                                    )
+                                    )
+                                    ** 2
+                                )
+                                < _d_tol_squared
+                        ):
+                            skip_str = True
+                            break
+                    else:
+                        continue
+                    break
+                if not skip_str:
+                    good_strs_within_elem_group.append(
+                        [[i for sub in struct for i in sub]]
+                    )
+            if atom == 0:
+                rolling_good_base_strs = good_strs_within_elem_group
+
+            # NOW; we will combine good_strs_within_elem_group and rolling_good_base_strs and
+            # remove if any bad structures accross these.
+
+            if atom > 0:
+                good_structures_merged = []
+                for structs in tqdm(
+                        itertools.product(
+                            rolling_good_base_strs, good_strs_within_elem_group
+                        ),
+                        total=len(rolling_good_base_strs)
+                              * len(good_strs_within_elem_group),
+                ):
+                    skip_str = False
+                    for i in range(len(structs[0])):
+                        # different atoms of previous kind
+                        atomgroup1 = structs[0][i]
+                        atomgroup2 = structs[1][0]
+                        pair = "-".join(
+                            sorted([self.atoms[i][1], self.atoms[atom][1]])
+                        )
+                        _d_tol_squared = max(
+                            self.d_mins_squared.get(pair, 0), self.d_tol_squared
+                        )
+                        for s1, s2 in itertools.product(atomgroup1, atomgroup2):
+                            if (
+                                    np.sum(
+                                        (
+                                                self.lattice.get_cartesian_coords(
+                                                    np.array(s1)
+                                                )
+                                                - self.lattice.get_cartesian_coords(
+                                            np.array(s2)
+                                        )
+                                        )
+                                        ** 2
+                                    )
+                                    < _d_tol_squared
+                            ):
+                                skip_str = True
+                                break
+                        if skip_str:
+                            break
+                    if not skip_str:
+                        good_structures_merged.append(structs[0] + [structs[1][0]])
+                rolling_good_base_strs = good_structures_merged
+        final_strucs += rolling_good_base_strs
+
+        self.final_strucs = final_strucs
+        return final_strucs
+
+    def get_structure_grids(self, density, top_X_combinations=-1):
         """
         Combining groups of wyckoff: sites satisfying composition requirements, and filtering
         out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
@@ -300,7 +466,7 @@ class HierarchicalStructureGeneration:
                                 self.get_wyckoff_candidates(
                                     pos=self.wyckoffs[site1[0]],
                                     d_min_squared=d_min_squared,
-                                    npoints=npoints
+                                    density=density
                                 )
                             )
                         )
@@ -310,7 +476,7 @@ class HierarchicalStructureGeneration:
                         for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
                                 pos=self.wyckoffs[site1[0]],
                                 d_min_squared=d_min_squared,
-                                npoints=npoints), multiple):
+                                density=density), multiple):
                             good_str = 1
                             for group in itertools.product(*wyckoff_groups):
 
@@ -337,16 +503,16 @@ class HierarchicalStructureGeneration:
                     for sub_pairs in itertools.combinations(struct, 2):
                         for s1, s2 in itertools.product(*sub_pairs):
                             if (
-                                np.sum(
-                                    (
-                                        self.lattice.get_cartesian_coords(np.array(s1))
-                                        - self.lattice.get_cartesian_coords(
+                                    np.sum(
+                                        (
+                                                self.lattice.get_cartesian_coords(np.array(s1))
+                                                - self.lattice.get_cartesian_coords(
                                             np.array(s2)
                                         )
+                                        )
+                                        ** 2
                                     )
-                                    ** 2
-                                )
-                                < _d_tol_squared
+                                    < _d_tol_squared
                             ):
                                 skip_str = True
                                 break
@@ -367,11 +533,11 @@ class HierarchicalStructureGeneration:
                     print("{}.{}:  Elem pairs loop: {}".format(counter, combin, elem))
                     good_structures_merged = []
                     for structs in tqdm(
-                        itertools.product(
-                            rolling_good_base_strs, good_strs_within_elem_group
-                        ),
-                        total=len(rolling_good_base_strs)
-                        * len(good_strs_within_elem_group),
+                            itertools.product(
+                                rolling_good_base_strs, good_strs_within_elem_group
+                            ),
+                            total=len(rolling_good_base_strs)
+                                  * len(good_strs_within_elem_group),
                     ):
                         skip_str = False
                         for i in range(len(structs[0])):
@@ -386,18 +552,18 @@ class HierarchicalStructureGeneration:
                             )
                             for s1, s2 in itertools.product(atomgroup1, atomgroup2):
                                 if (
-                                    np.sum(
-                                        (
-                                            self.lattice.get_cartesian_coords(
-                                                np.array(s1)
-                                            )
-                                            - self.lattice.get_cartesian_coords(
+                                        np.sum(
+                                            (
+                                                    self.lattice.get_cartesian_coords(
+                                                        np.array(s1)
+                                                    )
+                                                    - self.lattice.get_cartesian_coords(
                                                 np.array(s2)
                                             )
+                                            )
+                                            ** 2
                                         )
-                                        ** 2
-                                    )
-                                    < _d_tol_squared
+                                        < _d_tol_squared
                                 ):
                                     skip_str = True
                                     break
@@ -413,12 +579,12 @@ class HierarchicalStructureGeneration:
         return final_strucs
 
     def parallel_get_structure_grids(
-        self,
-        npoints,
-        top_X_combinations=-1,
-        n_jobs=-1,
-        batch_size=100000,
-        backend="loky",
+            self,
+            density,
+            top_X_combinations=-1,
+            n_jobs=-1,
+            batch_size=100000,
+            backend="loky",
     ):
         """
         Warning: this is the parallel version of get_structure_grids. Since the atomic tasks are extremely fast
@@ -475,7 +641,7 @@ class HierarchicalStructureGeneration:
                                 self.get_wyckoff_candidates(
                                     pos=self.wyckoffs[site1[0]],
                                     d_min_squared=d_min_squared,
-                                    npoints=npoints
+                                    density=density
                                 )
                             )
                         )
@@ -485,7 +651,7 @@ class HierarchicalStructureGeneration:
                         for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
                                 pos=self.wyckoffs[site1[0]],
                                 d_min_squared=d_min_squared,
-                                npoints=npoints), multiple):
+                                density=density), multiple):
                             good_str = 1
                             for group in itertools.product(*wyckoff_groups):
 
@@ -556,14 +722,14 @@ def struct_func0(struct, _d_tol_squared, lattice):
     for sub_pairs in itertools.combinations(struct, 2):
         for s1, s2 in itertools.product(*sub_pairs):
             if (
-                np.sum(
-                    (
-                        lattice.get_cartesian_coords(np.array(s1))
-                        - lattice.get_cartesian_coords(np.array(s2))
+                    np.sum(
+                        (
+                                lattice.get_cartesian_coords(np.array(s1))
+                                - lattice.get_cartesian_coords(np.array(s2))
+                        )
+                        ** 2
                     )
-                    ** 2
-                )
-                < _d_tol_squared
+                    < _d_tol_squared
             ):
                 skip_str = True
                 break
@@ -585,14 +751,14 @@ def struct_func(structs, atom, atoms, d_mins_squared, d_tol_squared, lattice):
         _d_tol_squared = max(d_mins_squared.get(pair, 0), d_tol_squared)
         for s1, s2 in itertools.product(atomgroup1, atomgroup2):
             if (
-                np.sum(
-                    (
-                        lattice.get_cartesian_coords(np.array(s1))
-                        - lattice.get_cartesian_coords(np.array(s2))
+                    np.sum(
+                        (
+                                lattice.get_cartesian_coords(np.array(s1))
+                                - lattice.get_cartesian_coords(np.array(s2))
+                        )
+                        ** 2
                     )
-                    ** 2
-                )
-                < _d_tol_squared
+                    < _d_tol_squared
             ):
                 skip_str = True
                 break
@@ -625,6 +791,7 @@ def parse_asu(p):
     """
     Helper function to parse limits from asu_data
     """
+
     def _t(t):
         if t[0] == "<":
             val = eval(t.split("<")[1].replace("=", ""))
