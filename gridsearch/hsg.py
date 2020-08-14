@@ -8,9 +8,6 @@ from pymatgen.core import Structure
 from joblib import Parallel, delayed
 
 
-# TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
-
-
 class HierarchicalStructureGeneration:
     """
     **Input:** Space group, lattice parameters, number of atoms for each element-type in the unit cell, and pair-wise minimum distances allowed.
@@ -112,8 +109,6 @@ class HierarchicalStructureGeneration:
         """
 
         grid_xyz = []
-        # if self.use_asu:
-        #         continue
 
         for i in range(3):
             if self.active_dim(pos)[i]:
