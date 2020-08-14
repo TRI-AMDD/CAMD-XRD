@@ -119,6 +119,7 @@ class HierarchicalStructureGeneration:
                 if self.use_asu:
                     npoints = int(np.ceil((self.lattice.parameters[i] * self.ppipe[0][i][1] -
                                            self.lattice.parameters[i] * self.ppipe[0][i][0]) * density))
+                    print("Using {} points in direction {}".format(npoints,i))
                     grid_xyz.append(
                         get_linspace(
                             *self.ppipe[0][i],
