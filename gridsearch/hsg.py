@@ -59,6 +59,7 @@ class HierarchicalStructureGeneration:
         self.d_mins_squared = {k: v ** 2 for k, v in self.d_mins.items()}
         self.wyckoffs = get_wyckoffs(spg)
         self.multiplicities = [len(w) for w in self.wyckoffs]
+        self.final_strucs = None
 
         if use_asu:
             # TODO: Need to have package data management in the long term
@@ -427,7 +428,7 @@ class HierarchicalStructureGeneration:
         """
         Generates structures corresponding to a list of Wyckoff site combinations satisfying the compositional
         requirements. This method simply calls the proper get_structure_grid method for all combinations listed
-        as argument.
+        as argument. This is the preferred convenience method of structure generation in general.
         Args:
             density (float): number of grid points per angstrom rounded up
             combinations (list): Indices of Wyckoff combinations (available from the filter_combinations attribute
@@ -444,16 +445,16 @@ class HierarchicalStructureGeneration:
         """
 
         final_strucs = []
-
-        combins = np.array(self.filter_combinations)[combinations]
-
-        for index in combinations:
-            if parallel == False:
-                final_strucs.append(self.get_structure_grid(density, index))
-            elif parallel == True:
+        combinations = (
+            combinations if combinations else range(len(self.filter_combinations))
+        )
+        for combination in combinations:
+            if not parallel:
+                final_strucs.append(self.get_structure_grid(density, combination))
+            else:
                 final_strucs.append(
                     self.parallel_get_structure_grid(
-                        density, index, n_jobs, batch_size, backend
+                        density, combination, n_jobs, batch_size, backend
                     )
                 )
         self.final_strucs = final_strucs
@@ -464,15 +465,13 @@ class HierarchicalStructureGeneration:
     ):
         """
         Warning: this is the parallel version of get_structure_grids. Since the atomic tasks are extremely fast
-        get_structure_grids can be much faster if npoints is small. If npoints is large, by dispatching large
+        get_structure_grids can be much faster if npoints is small. If point density is large, by dispatching large
         batches (e.g. 100k) - notable parallelization speedup might happen as overhead is overcome.
 
-        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
-        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
-        by two different species.
         Args:
-            density (float): number of grid points per angstrom rounded up
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
+            density (float): number of grid points per angstrom rounded up (point density)
+            combination (int): Index of the Wyckoff combination (available from the filter_combinations attribute
+                of the class).
             n_jobs (int): number of processes or threads to use. defaults to -1 (all).
             batch_size (int, str): see joblib.Parallel
             backend (str): see joblib.Parallel
