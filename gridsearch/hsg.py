@@ -408,7 +408,6 @@ class HierarchicalStructureGeneration:
                 rolling_good_base_strs = good_structures_merged
         final_strucs += rolling_good_base_strs
 
-        self.final_strucs = final_strucs
         return final_strucs
 
     def get_structure_grids(
@@ -588,8 +587,6 @@ class HierarchicalStructureGeneration:
                 )
                 rolling_good_base_strs = [_ for _ in rolling_good_base_strs if _]
         final_strucs += rolling_good_base_strs
-
-        self.final_strucs = final_strucs
         return final_strucs
 
     def get_structure_vecs(self):
