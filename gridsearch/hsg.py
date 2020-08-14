@@ -32,7 +32,7 @@ class HierarchicalStructureGeneration:
     """
 
     def __init__(
-            self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
+        self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
     ):
         """
         Args:
@@ -78,7 +78,7 @@ class HierarchicalStructureGeneration:
 
         filtered_strucs = []
         for i in itertools.product(
-                *[self.get_possible_combinations(a[0]) for a in self.atoms]
+            *[self.get_possible_combinations(a[0]) for a in self.atoms]
         ):
             counter = np.zeros(len(self.wyckoffs))
             for j in i:
@@ -117,9 +117,16 @@ class HierarchicalStructureGeneration:
         for i in range(3):
             if self.active_dim(pos)[i]:
                 if self.use_asu:
-                    npoints = int(np.ceil((self.lattice.parameters[i] * self.ppipe[0][i][1] -
-                                           self.lattice.parameters[i] * self.ppipe[0][i][0]) * density))
-                    print("Using {} points in direction {}".format(npoints,i))
+                    npoints = int(
+                        np.ceil(
+                            (
+                                self.lattice.parameters[i] * self.ppipe[0][i][1]
+                                - self.lattice.parameters[i] * self.ppipe[0][i][0]
+                            )
+                            * density
+                        )
+                    )
+                    print("Using {} points in direction {}".format(npoints, i))
                     grid_xyz.append(
                         get_linspace(
                             *self.ppipe[0][i],
@@ -128,7 +135,7 @@ class HierarchicalStructureGeneration:
                         )
                     )
                 else:
-                    npoints = int(np.ceil((self.lattice.parameters[i])*density))
+                    npoints = int(np.ceil((self.lattice.parameters[i]) * density))
                     grid_xyz.append(np.linspace(0, 1, npoints, endpoint=True))
             else:
                 grid_xyz.append([0])  # if dimension is not active.
@@ -149,22 +156,22 @@ class HierarchicalStructureGeneration:
                 )  # forming a set will get rid of duplciates (overlaps)
 
                 if len(wyckoff_positions) == len(
-                        pos
+                    pos
                 ):  # if no overlapping sites, store set of wyckoff positions
                     skip_str = False
                     if d_min_squared:
                         for s1, s2 in itertools.combinations(wyckoff_positions, 2):
                             if (
-                                    np.sum(
-                                        (
-                                                self.lattice.get_cartesian_coords(np.array(s1))
-                                                - self.lattice.get_cartesian_coords(
+                                np.sum(
+                                    (
+                                        self.lattice.get_cartesian_coords(np.array(s1))
+                                        - self.lattice.get_cartesian_coords(
                                             np.array(s2)
                                         )
-                                        )
-                                        ** 2
                                     )
-                                    < d_min_squared
+                                    ** 2
+                                )
+                                < d_min_squared
                             ):
                                 skip_str = True
                                 break
@@ -290,26 +297,39 @@ class HierarchicalStructureGeneration:
                             self.get_wyckoff_candidates(
                                 pos=self.wyckoffs[site1[0]],
                                 d_min_squared=d_min_squared,
-                                density=density
+                                density=density,
                             )
                         )
                     )
                 else:
                     new_list = []
 
-                    for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
+                    for wyckoff_groups in itertools.combinations(
+                        self.get_wyckoff_candidates(
                             pos=self.wyckoffs[site1[0]],
                             d_min_squared=d_min_squared,
-                            density=density), multiple):
+                            density=density,
+                        ),
+                        multiple,
+                    ):
                         good_str = 1
                         for group in itertools.product(*wyckoff_groups):
 
                             for s1, s2 in itertools.combinations(group, 2):
-                                if np.sum((
-                                                  self.lattice.get_cartesian_coords(
-                                                      np.array(s1))
-                                                  - self.lattice.get_cartesian_coords(
-                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                if (
+                                    np.sum(
+                                        (
+                                            self.lattice.get_cartesian_coords(
+                                                np.array(s1)
+                                            )
+                                            - self.lattice.get_cartesian_coords(
+                                                np.array(s2)
+                                            )
+                                        )
+                                        ** 2
+                                    )
+                                    < _d_tol_squared
+                                ):
                                     good_str = 0
                                     break
                             if good_str == 0:
@@ -327,16 +347,14 @@ class HierarchicalStructureGeneration:
                 for sub_pairs in itertools.combinations(struct, 2):
                     for s1, s2 in itertools.product(*sub_pairs):
                         if (
-                                np.sum(
-                                    (
-                                            self.lattice.get_cartesian_coords(np.array(s1))
-                                            - self.lattice.get_cartesian_coords(
-                                        np.array(s2)
-                                    )
-                                    )
-                                    ** 2
+                            np.sum(
+                                (
+                                    self.lattice.get_cartesian_coords(np.array(s1))
+                                    - self.lattice.get_cartesian_coords(np.array(s2))
                                 )
-                                < _d_tol_squared
+                                ** 2
+                            )
+                            < _d_tol_squared
                         ):
                             skip_str = True
                             break
@@ -357,37 +375,33 @@ class HierarchicalStructureGeneration:
                 print("{}.{}:  Elem pairs loop: {}".format(combination, combin, elem))
                 good_structures_merged = []
                 for structs in tqdm(
-                        itertools.product(
-                            rolling_good_base_strs, good_strs_within_elem_group
-                        ),
-                        total=len(rolling_good_base_strs)
-                              * len(good_strs_within_elem_group),
+                    itertools.product(
+                        rolling_good_base_strs, good_strs_within_elem_group
+                    ),
+                    total=len(rolling_good_base_strs)
+                    * len(good_strs_within_elem_group),
                 ):
                     skip_str = False
                     for i in range(len(structs[0])):
                         # different atoms of previous kind
                         atomgroup1 = structs[0][i]
                         atomgroup2 = structs[1][0]
-                        pair = "-".join(
-                            sorted([self.atoms[i][1], self.atoms[atom][1]])
-                        )
+                        pair = "-".join(sorted([self.atoms[i][1], self.atoms[atom][1]]))
                         _d_tol_squared = max(
                             self.d_mins_squared.get(pair, 0), self.d_tol_squared
                         )
                         for s1, s2 in itertools.product(atomgroup1, atomgroup2):
                             if (
-                                    np.sum(
-                                        (
-                                                self.lattice.get_cartesian_coords(
-                                                    np.array(s1)
-                                                )
-                                                - self.lattice.get_cartesian_coords(
+                                np.sum(
+                                    (
+                                        self.lattice.get_cartesian_coords(np.array(s1))
+                                        - self.lattice.get_cartesian_coords(
                                             np.array(s2)
                                         )
-                                        )
-                                        ** 2
                                     )
-                                    < _d_tol_squared
+                                    ** 2
+                                )
+                                < _d_tol_squared
                             ):
                                 skip_str = True
                                 break
@@ -401,42 +415,52 @@ class HierarchicalStructureGeneration:
         self.final_strucs = final_strucs
         return final_strucs
 
-    def get_structure_grids(self, density, combinations=[0], parallel = False, n_jobs=-1,
-            batch_size=100000,
-            backend="loky" ):
+    def get_structure_grids(
+        self,
+        density,
+        combinations=None,
+        parallel=False,
+        n_jobs=-1,
+        batch_size=100000,
+        backend="loky",
+    ):
         """
-        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
-        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
-        by two different species.
+        Generates structures corresponding to a list of Wyckoff site combinations satisfying the compositional
+        requirements. This method simply calls the proper get_structure_grid method for all combinations listed
+        as argument.
         Args:
             density (float): number of grid points per angstrom rounded up
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
+            combinations (list): Indices of Wyckoff combinations (available from the filter_combinations attribute
+                of the class). Defaults to None, which generated the grids for *all* combinations listed in
+                filter_combinations
+            parallel (bool): Switches the generation method to a parallelized version. See method
+                parallel_get_structure_grid to decide if parallelization is feasible for the particualr use case.
+            n_jobs (int): number of processes or threads to use. defaults to -1 (all).
+            batch_size (int, str): see joblib.Parallel
+            backend (str): see joblib.Parallel
 
         Returns:
-            list of structure coordinates which span the grid
+            A group of lists of structure grids for each combination listed in combinations
         """
 
         final_strucs = []
 
         combins = np.array(self.filter_combinations)[combinations]
 
-
         for index in combinations:
             if parallel == False:
                 final_strucs.append(self.get_structure_grid(density, index))
             elif parallel == True:
-                final_strucs.append(self.parallel_get_structure_grid(density, index, n_jobs, batch_size, backend))
+                final_strucs.append(
+                    self.parallel_get_structure_grid(
+                        density, index, n_jobs, batch_size, backend
+                    )
+                )
         self.final_strucs = final_strucs
         return final_strucs
 
     def parallel_get_structure_grid(
-            self,
-            density,
-            combination = 0,
-            n_jobs=-1,
-            batch_size=100000,
-            backend="loky",
-
+        self, density, combination=0, n_jobs=-1, batch_size=100000, backend="loky",
     ):
         """
         Warning: this is the parallel version of get_structure_grids. Since the atomic tasks are extremely fast
@@ -492,26 +516,39 @@ class HierarchicalStructureGeneration:
                             self.get_wyckoff_candidates(
                                 pos=self.wyckoffs[site1[0]],
                                 d_min_squared=d_min_squared,
-                                density=density
+                                density=density,
                             )
                         )
                     )
                 else:
                     new_list = []
 
-                    for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
+                    for wyckoff_groups in itertools.combinations(
+                        self.get_wyckoff_candidates(
                             pos=self.wyckoffs[site1[0]],
                             d_min_squared=d_min_squared,
-                            density=density), multiple):
+                            density=density,
+                        ),
+                        multiple,
+                    ):
                         good_str = 1
                         for group in itertools.product(*wyckoff_groups):
 
                             for s1, s2 in itertools.combinations(group, 2):
-                                if np.sum((
-                                                  self.lattice.get_cartesian_coords(
-                                                      np.array(s1))
-                                                  - self.lattice.get_cartesian_coords(
-                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                if (
+                                    np.sum(
+                                        (
+                                            self.lattice.get_cartesian_coords(
+                                                np.array(s1)
+                                            )
+                                            - self.lattice.get_cartesian_coords(
+                                                np.array(s2)
+                                            )
+                                        )
+                                        ** 2
+                                    )
+                                    < _d_tol_squared
+                                ):
                                     good_str = 0
                                     break
                             if good_str == 0:
@@ -530,9 +567,7 @@ class HierarchicalStructureGeneration:
                 for struct in within_elem_group
             )
 
-            good_strs_within_elem_group = [
-                _ for _ in good_strs_within_elem_group if _
-            ]
+            good_strs_within_elem_group = [_ for _ in good_strs_within_elem_group if _]
 
             if atom == 0:
                 rolling_good_base_strs = good_strs_within_elem_group
@@ -572,14 +607,14 @@ def struct_func0(struct, _d_tol_squared, lattice):
     for sub_pairs in itertools.combinations(struct, 2):
         for s1, s2 in itertools.product(*sub_pairs):
             if (
-                    np.sum(
-                        (
-                                lattice.get_cartesian_coords(np.array(s1))
-                                - lattice.get_cartesian_coords(np.array(s2))
-                        )
-                        ** 2
+                np.sum(
+                    (
+                        lattice.get_cartesian_coords(np.array(s1))
+                        - lattice.get_cartesian_coords(np.array(s2))
                     )
-                    < _d_tol_squared
+                    ** 2
+                )
+                < _d_tol_squared
             ):
                 skip_str = True
                 break
@@ -601,14 +636,14 @@ def struct_func(structs, atom, atoms, d_mins_squared, d_tol_squared, lattice):
         _d_tol_squared = max(d_mins_squared.get(pair, 0), d_tol_squared)
         for s1, s2 in itertools.product(atomgroup1, atomgroup2):
             if (
-                    np.sum(
-                        (
-                                lattice.get_cartesian_coords(np.array(s1))
-                                - lattice.get_cartesian_coords(np.array(s2))
-                        )
-                        ** 2
+                np.sum(
+                    (
+                        lattice.get_cartesian_coords(np.array(s1))
+                        - lattice.get_cartesian_coords(np.array(s2))
                     )
-                    < _d_tol_squared
+                    ** 2
+                )
+                < _d_tol_squared
             ):
                 skip_str = True
                 break
