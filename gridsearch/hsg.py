@@ -73,7 +73,6 @@ class HierarchicalStructureGeneration:
                 if sum(self.active_dim(self.wyckoffs[i])) > 0
             ]
         )
-
         filtered_strucs = []
         for i in itertools.product(
             *[self.get_possible_combinations(a[0]) for a in self.atoms]
@@ -188,7 +187,9 @@ class HierarchicalStructureGeneration:
         """
         self.combinations = [
             q
-            for i in range(len(self.multiplicities), 0, -1)
+            for i in range(max(len(self.multiplicities),
+                               int(target_n_atoms/min(self.multiplicities))),
+                           0, -1)
             for q in itertools.combinations_with_replacement(
                 enumerate(self.multiplicities), i
             )
