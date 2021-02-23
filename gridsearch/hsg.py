@@ -154,18 +154,8 @@ class HierarchicalStructureGeneration:
                     skip_str = False
                     if d_min_squared:
                         for s1, s2 in itertools.combinations(wyckoff_positions, 2):
-                            if (
-                                    np.sum(
-                                        (
-                                                self.lattice.get_cartesian_coords(np.array(s1))
-                                                - self.lattice.get_cartesian_coords(
-                                            np.array(s2)
-                                        )
-                                        )
-                                        ** 2
-                                    )
-                                    < d_min_squared
-                            ):
+                            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+                            if d2 < d_min_squared:
                                 skip_str = True
                                 break
                     if skip_str:
@@ -185,7 +175,7 @@ class HierarchicalStructureGeneration:
         """
         self.combinations = [
             q
-            for i in range(len(self.multiplicities), 0, -1)
+            for i in range(int(target_n_atoms/min(self.multiplicities)), 0, -1)
             for q in itertools.combinations_with_replacement(
                 enumerate(self.multiplicities), i
             )
@@ -305,11 +295,8 @@ class HierarchicalStructureGeneration:
                         for group in itertools.product(*wyckoff_groups):
 
                             for s1, s2 in itertools.combinations(group, 2):
-                                if np.sum((
-                                                  self.lattice.get_cartesian_coords(
-                                                      np.array(s1))
-                                                  - self.lattice.get_cartesian_coords(
-                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+                                if d2 < _d_tol_squared:
                                     good_str = 0
                                     break
                             if good_str == 0:
@@ -326,7 +313,7 @@ class HierarchicalStructureGeneration:
                 skip_str = False
                 for sub_pairs in itertools.combinations(struct, 2):
                     for s1, s2 in itertools.product(*sub_pairs):
-                    	d2 = pbc_shortest_vectors(self, frac_coords1, frac_coords2, return_d2=True)[1]
+                        d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
                         if d2 < _d_tol_squared:
                             skip_str = True
                             break
@@ -365,20 +352,8 @@ class HierarchicalStructureGeneration:
                             self.d_mins_squared.get(pair, 0), self.d_tol_squared
                         )
                         for s1, s2 in itertools.product(atomgroup1, atomgroup2):
-                            if (
-                                    np.sum(
-                                        (
-                                                self.lattice.get_cartesian_coords(
-                                                    np.array(s1)
-                                                )
-                                                - self.lattice.get_cartesian_coords(
-                                            np.array(s2)
-                                        )
-                                        )
-                                        ** 2
-                                    )
-                                    < _d_tol_squared
-                            ):
+                            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+                            if d2 < _d_tol_squared:
                                 skip_str = True
                                 break
                         if skip_str:
@@ -497,11 +472,8 @@ class HierarchicalStructureGeneration:
                         for group in itertools.product(*wyckoff_groups):
 
                             for s1, s2 in itertools.combinations(group, 2):
-                                if np.sum((
-                                                  self.lattice.get_cartesian_coords(
-                                                      np.array(s1))
-                                                  - self.lattice.get_cartesian_coords(
-                                              np.array(s2))) ** 2) < _d_tol_squared:
+                                d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+                                if d2 < _d_tol_squared:
                                     good_str = 0
                                     break
                             if good_str == 0:
@@ -561,16 +533,8 @@ def struct_func0(struct, _d_tol_squared, lattice):
     skip_str = False
     for sub_pairs in itertools.combinations(struct, 2):
         for s1, s2 in itertools.product(*sub_pairs):
-            if (
-                    np.sum(
-                        (
-                                lattice.get_cartesian_coords(np.array(s1))
-                                - lattice.get_cartesian_coords(np.array(s2))
-                        )
-                        ** 2
-                    )
-                    < _d_tol_squared
-            ):
+            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+            if d2 < _d_tol_squared:
                 skip_str = True
                 break
         else:
@@ -590,16 +554,8 @@ def struct_func(structs, atom, atoms, d_mins_squared, d_tol_squared, lattice):
         pair = "-".join(sorted([atoms[i][1], atoms[atom][1]]))
         _d_tol_squared = max(d_mins_squared.get(pair, 0), d_tol_squared)
         for s1, s2 in itertools.product(atomgroup1, atomgroup2):
-            if (
-                    np.sum(
-                        (
-                                lattice.get_cartesian_coords(np.array(s1))
-                                - lattice.get_cartesian_coords(np.array(s2))
-                        )
-                        ** 2
-                    )
-                    < _d_tol_squared
-            ):
+            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+            if d2 < _d_tol_squared:
                 skip_str = True
                 break
         if skip_str:
