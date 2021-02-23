@@ -6,6 +6,7 @@ from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
 from pymatgen.core import Structure
 from joblib import Parallel, delayed
+from pymatgen.util.coord import pbc_shortest_vectors
 
 
 # TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
@@ -325,18 +326,8 @@ class HierarchicalStructureGeneration:
                 skip_str = False
                 for sub_pairs in itertools.combinations(struct, 2):
                     for s1, s2 in itertools.product(*sub_pairs):
-                        if (
-                                np.sum(
-                                    (
-                                            self.lattice.get_cartesian_coords(np.array(s1))
-                                            - self.lattice.get_cartesian_coords(
-                                        np.array(s2)
-                                    )
-                                    )
-                                    ** 2
-                                )
-                                < _d_tol_squared
-                        ):
+                    	d2 = pbc_shortest_vectors(self, frac_coords1, frac_coords2, return_d2=True)[1]
+                        if d2 < _d_tol_squared:
                             skip_str = True
                             break
                     else:
