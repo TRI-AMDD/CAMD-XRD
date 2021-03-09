@@ -2,6 +2,7 @@ import itertools
 import numpy as np
 import json
 from pymatgen import Lattice
+from pymatgen.core.sites import PeriodicSite
 from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
 from pymatgen.core import Structure
@@ -241,129 +242,109 @@ class HierarchicalStructureGeneration:
             list of structure coordinates which span the grid
         """
 
-        final_strucs = []
-
-        rolling_good_base_strs = []
-
+        wyckoffs = []
         combin = self.filter_combinations[combination]
-        print(combination, combin)
-        for atom in range(len(combin)):
-            elem_group = combin[atom]
-            elem = self.atoms[atom][1]
+        for elem in range(len(combin)):
+            for atom in combin[elem]:
+                wyckoffs.append(atom[0])
 
-            if elem in self.d_mins_squared:
-                d_min_squared = self.d_mins_squared[elem]
-            else:
-                d_min_squared = None
+        combs = []
+        for comb in itertools.combinations(wyckoffs,2):
+            combs.append(comb)
 
-            _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
-            # FIRST WE WILL GET WYCKOFF SITE GRIDS;
-            # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
-            _g = []
-            print("{}.{}: Elem self loop: {}".format(combination, combin, elem))
-            passed = []
-            for site1 in elem_group:
+        combs = frozenset(combs)
 
-                # check for exchange duplicates if there is the same wyckoff site within the same element
-                multiple = 0
-                if site1 in passed:
-                    continue
-                for site2 in elem_group:
+        wyckoff_overlaps = {}
+        wyckoff_lengths = {}
 
-                    if site1 == site2:
-                        multiple += 1
-                passed.append(site1)
+        for atom in combs: 
+            wyckoff_overlaps[tuple(sorted(atom))] = {}
 
-                if multiple == 1:
-                    _g.append(
-                        list(
-                            self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[site1[0]],
-                                d_min_squared=d_min_squared,
-                                density=density
-                            )
-                        )
-                    )
-                else:
-                    new_list = []
 
-                    for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
-                            pos=self.wyckoffs[site1[0]],
-                            d_min_squared=d_min_squared,
-                            density=density), multiple):
-                        good_str = 1
-                        for group in itertools.product(*wyckoff_groups):
+            _d_tol_squared = self.d_tol_squared
 
-                            for s1, s2 in itertools.combinations(group, 2):
-                                d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-                                if d2 < _d_tol_squared:
-                                    good_str = 0
-                                    break
-                            if good_str == 0:
-                                break
-                        else:
-                            new_list.append(frozenset().union(*wyckoff_groups))
+            wyckoff_grid1 = self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[sorted(atom)[0]],
+                                d_min_squared=self.d_tol_squared,
+                                density=density)
 
-                    _g.append(new_list)
-
-            within_elem_group = list(itertools.product(*_g))
-
-            good_strs_within_elem_group = []
-            for struct in tqdm(within_elem_group):
-                skip_str = False
-                for sub_pairs in itertools.combinations(struct, 2):
-                    for s1, s2 in itertools.product(*sub_pairs):
+            wyckoff_grid2 = self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[sorted(atom)[1]],
+                                d_min_squared=self.d_tol_squared,
+                                density=density)
+            
+            if sorted(atom)[0] not in wyckoff_lengths:
+                wyckoff_lengths[sorted(atom)[0]] = len(wyckoff_grid1)
+            if sorted(atom)[1] not in wyckoff_lengths:
+                wyckoff_lengths[sorted(atom)[1]] = len(wyckoff_grid2)
+            
+            count1 = -1
+            for struct1 in wyckoff_grid1:
+                count1+=1
+                count2 = -1
+                for struct2 in wyckoff_grid2:
+                    count2+=1
+                    if wyckoffs[atom[0]] == wyckoffs[atom[1]] and count2 <= count1:
+                        continue
+                    skip_str = False
+                    for s1, s2 in itertools.product(*[struct1,struct2]):
                         d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-                        if d2 < _d_tol_squared:
+                        if d2 < self.d_tol_squared:
                             skip_str = True
                             break
-                    else:
-                        continue
-                    break
-                if not skip_str:
-                    good_strs_within_elem_group.append(
-                        [[i for sub in struct for i in sub]]
-                    )
-            if atom == 0:
-                rolling_good_base_strs = good_strs_within_elem_group
-
-            # NOW; we will combine good_strs_within_elem_group and rolling_good_base_strs and
-            # remove if any bad structures accross these.
-
-            if atom > 0:
-                print("{}.{}:  Elem pairs loop: {}".format(combination, combin, elem))
-                good_structures_merged = []
-                for structs in tqdm(
-                        itertools.product(
-                            rolling_good_base_strs, good_strs_within_elem_group
-                        ),
-                        total=len(rolling_good_base_strs)
-                              * len(good_strs_within_elem_group),
-                ):
-                    skip_str = False
-                    for i in range(len(structs[0])):
-                        # different atoms of previous kind
-                        atomgroup1 = structs[0][i]
-                        atomgroup2 = structs[1][0]
-                        pair = "-".join(
-                            sorted([self.atoms[i][1], self.atoms[atom][1]])
-                        )
-                        _d_tol_squared = max(
-                            self.d_mins_squared.get(pair, 0), self.d_tol_squared
-                        )
-                        for s1, s2 in itertools.product(atomgroup1, atomgroup2):
-                            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-                            if d2 < _d_tol_squared:
-                                skip_str = True
-                                break
-                        if skip_str:
-                            break
+                        
                     if not skip_str:
-                        good_structures_merged.append(structs[0] + [structs[1][0]])
-                rolling_good_base_strs = good_structures_merged
-        final_strucs += rolling_good_base_strs
+                        wyckoff_overlaps[tuple(sorted(atom))][(count1, count2)] = True
 
-        self.final_strucs = final_strucs
+        good_wyckoff_combinations = []
+        good_strs_keys = []
+
+        if len(wyckoffs) == 1:
+            for i in range(len(wyckoff_lengths[wyckoffs[0]])):
+                good_wyckoff_combinations.append([i])
+
+        else:
+            first_pair =  tuple(sorted(wyckoffs[0:2]))
+            good_wyckoff_combinations = list(wyckoff_overlaps[first_pair].keys())
+            if len(wyckoffs) > 2:
+                for atom in range(2,len(wyckoffs)):
+                    possible_grids = wyckoff_lengths[wyckoffs[atom]]
+                    new_good_wyckoff_combinations = []
+                    prev_atoms = wyckoffs[0:atom]
+                    
+                    for struct in good_wyckoff_combinations:
+        #                 print(struct)
+                        
+                        for grid in range(possible_grids):
+                            good_str = True
+                            for pair in itertools.product(frozenset(prev_atoms),[wyckoffs[atom]]):
+                                for grid_pair in itertools.product(struct, [grid]):
+                                    if grid_pair not in wyckoff_overlaps[tuple(sorted(pair))] and \
+                                    tuple(reversed(grid_pair)) not in wyckoff_overlaps[tuple(sorted(pair))]:
+                                        good_str = False
+                                        break
+                                if not good_str:
+                                    break
+                            else:
+                                new_good_wyckoff_combinations.append(struct+(grid,))
+                    
+                    good_wyckoff_combinations = new_good_wyckoff_combinations
+
+        wyckoff_grids = []
+        for i in range(len(wyckoffs)):
+            wyckoff_grids.append(list(self.get_wyckoff_candidates(
+                                pos=self.wyckoffs[wyckoffs[i]],
+                                d_min_squared=self.d_tol_squared,
+                                density=density)))
+            
+            
+        final_strucs = [] 
+        for combs in good_wyckoff_combinations:
+            final_strucs.append([])
+            for grid in range(len(combs)):
+                final_strucs[-1].append(list(wyckoff_grids[grid][combs[grid]]))
+                
+
         return final_strucs
 
     def get_structure_grids(self, density, combinations=[0], parallel = False, n_jobs=-1,
