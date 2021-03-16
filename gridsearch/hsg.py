@@ -247,65 +247,74 @@ class HierarchicalStructureGeneration:
         for elem in range(len(combin)):
             for atom in combin[elem]:
                 wyckoffs.append(atom[0])
+        if len(wyckoffs) > 1:
+            combs = []
+            for comb in itertools.combinations(wyckoffs,2):
+                combs.append(comb)
 
-        combs = []
-        for comb in itertools.combinations(wyckoffs,2):
-            combs.append(comb)
+            combs = frozenset(combs)
 
-        combs = frozenset(combs)
+            wyckoff_overlaps = {}
+            wyckoff_lengths = {}
 
-        wyckoff_overlaps = {}
-        wyckoff_lengths = {}
-
-        for atom in combs: 
-            wyckoff_overlaps[tuple(sorted(atom))] = {}
+            for atom in combs: 
+                wyckoff_overlaps[tuple(sorted(atom))] = {}
 
 
-            _d_tol_squared = self.d_tol_squared
+                _d_tol_squared = self.d_tol_squared
 
+                wyckoff_grid1 = self.get_wyckoff_candidates(
+                                    pos=self.wyckoffs[sorted(atom)[0]],
+                                    d_min_squared=self.d_tol_squared,
+                                    density=density)
+
+                wyckoff_grid2 = self.get_wyckoff_candidates(
+                                    pos=self.wyckoffs[sorted(atom)[1]],
+                                    d_min_squared=self.d_tol_squared,
+                                    density=density)
+                
+                if sorted(atom)[0] not in wyckoff_lengths:
+                    wyckoff_lengths[sorted(atom)[0]] = len(wyckoff_grid1)
+                if sorted(atom)[1] not in wyckoff_lengths:
+                    wyckoff_lengths[sorted(atom)[1]] = len(wyckoff_grid2)
+                
+                count1 = -1
+                for struct1 in wyckoff_grid1:
+                    count1+=1
+                    count2 = -1
+                    for struct2 in wyckoff_grid2:
+                        count2+=1
+                        if self.wyckoffs[atom[0]] == self.wyckoffs[atom[1]] and count2 <= count1:
+                            continue
+                        skip_str = False
+                        for s1, s2 in itertools.product(*[struct1,struct2]):
+                            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
+                            if d2 < self.d_tol_squared:
+                                skip_str = True
+                                break
+                            
+                        if not skip_str:
+                            wyckoff_overlaps[tuple(sorted(atom))][(count1, count2)] = True
+
+        else:
             wyckoff_grid1 = self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[sorted(atom)[0]],
-                                d_min_squared=self.d_tol_squared,
-                                density=density)
-
-            wyckoff_grid2 = self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[sorted(atom)[1]],
-                                d_min_squared=self.d_tol_squared,
-                                density=density)
-            
-            if sorted(atom)[0] not in wyckoff_lengths:
-                wyckoff_lengths[sorted(atom)[0]] = len(wyckoff_grid1)
-            if sorted(atom)[1] not in wyckoff_lengths:
-                wyckoff_lengths[sorted(atom)[1]] = len(wyckoff_grid2)
-            
-            count1 = -1
-            for struct1 in wyckoff_grid1:
-                count1+=1
-                count2 = -1
-                for struct2 in wyckoff_grid2:
-                    count2+=1
-                    if wyckoffs[atom[0]] == wyckoffs[atom[1]] and count2 <= count1:
-                        continue
-                    skip_str = False
-                    for s1, s2 in itertools.product(*[struct1,struct2]):
-                        d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-                        if d2 < self.d_tol_squared:
-                            skip_str = True
-                            break
-                        
-                    if not skip_str:
-                        wyckoff_overlaps[tuple(sorted(atom))][(count1, count2)] = True
-
-        good_wyckoff_combinations = []
-        good_strs_keys = []
-
+                                    pos=self.wyckoffs[0],
+                                    d_min_squared=self.d_tol_squared,
+                                    density=density)
+            wyckoff_lengths = {wyckoffs[0]: len(wyckoff_grid1)}        
         if len(wyckoffs) == 1:
-            for i in range(len(wyckoff_lengths[wyckoffs[0]])):
-                good_wyckoff_combinations.append([i])
+            good_wyckoff_combinations = []
+            for i in range(wyckoff_lengths[wyckoffs[0]]):
+                good_wyckoff_combinations.append((i))
 
         else:
             first_pair =  tuple(sorted(wyckoffs[0:2]))
-            good_wyckoff_combinations = list(wyckoff_overlaps[first_pair].keys())
+            if wyckoffs[1] > wyckoffs[0]:
+                good_wyckoff_combinations = list(wyckoff_overlaps[first_pair].keys())
+            else:
+                good_wyckoff_combinations = []
+                for combination in list(wyckoff_overlaps[first_pair].keys()):
+                    good_wyckoff_combinations.append(tuple(reversed(combination)))
             if len(wyckoffs) > 2:
                 for atom in range(2,len(wyckoffs)):
                     possible_grids = wyckoff_lengths[wyckoffs[atom]]
@@ -317,12 +326,14 @@ class HierarchicalStructureGeneration:
                         
                         for grid in range(possible_grids):
                             good_str = True
-                            for pair in itertools.product(frozenset(prev_atoms),[wyckoffs[atom]]):
-                                for grid_pair in itertools.product(struct, [grid]):
-                                    if grid_pair not in wyckoff_overlaps[tuple(sorted(pair))] and \
-                                    tuple(reversed(grid_pair)) not in wyckoff_overlaps[tuple(sorted(pair))]:
-                                        good_str = False
-                                        break
+                            for index in range(len(frozenset(prev_atoms))):
+                                pair = tuple(sorted((prev_atoms[index],wyckoffs[atom])))
+                                grid_pair = (struct[index], grid)
+
+                                if grid_pair not in wyckoff_overlaps[tuple(sorted(pair))] and \
+                                tuple(reversed(grid_pair)) not in wyckoff_overlaps[tuple(sorted(pair))]:
+                                    good_str = False
+                                    break
                                 if not good_str:
                                     break
                             else:
@@ -339,11 +350,13 @@ class HierarchicalStructureGeneration:
             
             
         final_strucs = [] 
+        
         for combs in good_wyckoff_combinations:
+            count = 0
             final_strucs.append([])
             for grid in range(len(combs)):
-                final_strucs[-1].append(list(wyckoff_grids[grid][combs[grid]]))
-                
+                final_strucs[-1].append(list(wyckoff_grids[count][combs[grid]]))
+                count += 1 
 
         return final_strucs
 
