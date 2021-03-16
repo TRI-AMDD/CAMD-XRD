@@ -257,7 +257,7 @@ class HierarchicalStructureGeneration:
             wyckoff_overlaps = {}
             wyckoff_lengths = {}
 
-            for atom in combs: 
+            for atom in tqdm(combs): 
                 wyckoff_overlaps[tuple(sorted(atom))] = {}
 
 
@@ -298,14 +298,14 @@ class HierarchicalStructureGeneration:
 
         else:
             wyckoff_grid1 = self.get_wyckoff_candidates(
-                                    pos=self.wyckoffs[0],
+                                    pos=self.wyckoffs[wyckoffs[0]],
                                     d_min_squared=self.d_tol_squared,
                                     density=density)
             wyckoff_lengths = {wyckoffs[0]: len(wyckoff_grid1)}        
         if len(wyckoffs) == 1:
             good_wyckoff_combinations = []
             for i in range(wyckoff_lengths[wyckoffs[0]]):
-                good_wyckoff_combinations.append((i))
+                good_wyckoff_combinations.append((i,))
 
         else:
             first_pair =  tuple(sorted(wyckoffs[0:2]))
@@ -316,7 +316,7 @@ class HierarchicalStructureGeneration:
                 for combination in list(wyckoff_overlaps[first_pair].keys()):
                     good_wyckoff_combinations.append(tuple(reversed(combination)))
             if len(wyckoffs) > 2:
-                for atom in range(2,len(wyckoffs)):
+                for atom in tqdm(range(2,len(wyckoffs))):
                     possible_grids = wyckoff_lengths[wyckoffs[atom]]
                     new_good_wyckoff_combinations = []
                     prev_atoms = wyckoffs[0:atom]
@@ -348,9 +348,7 @@ class HierarchicalStructureGeneration:
                                 d_min_squared=self.d_tol_squared,
                                 density=density)))
             
-            
-        final_strucs = [] 
-        
+        final_strucs = []
         for combs in good_wyckoff_combinations:
             count = 0
             final_strucs.append([])
