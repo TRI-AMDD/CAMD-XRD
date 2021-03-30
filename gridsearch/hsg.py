@@ -194,7 +194,7 @@ class HierarchicalStructureGeneration:
             True if Wyckoff site contains degrees of freedom for atom position
 
         """
-        return pos[0].rotation_matrix.sum(axis=0) != 0
+        return np.abs(pos[0].rotation_matrix).sum(axis=0) != 0
 
     @staticmethod
     def warp(coord):
@@ -598,3 +598,48 @@ def parse_asu(p):
         lims.append(l)
         ends.append(e)
     return lims, ends
+
+for i in tqdm_notebook(range(len(strucV12))):
+    count1 = 0
+    for j in range(len(strucV12)):
+        vector, length = pbc_shortest_vectors(\
+            supercellorig.lattice, supercellorig.frac_coords[trans12[i]], \
+            supercellorig.frac_coords[trans12[j]], return_d2=True)
+        
+        if equiv_atoms[trans12[i]] == equiv_atoms[trans12[j]]:
+            newtensor1 = bornorig[int(np.floor(trans12[i]%4))]
+            newtensor2 = bornorig[int(np.floor(trans12[j]%4))]
+            if not np.allclose(newtensor1, newtensor2):
+                t = np.array([[-1,0,0],[0,1,0],[0,0,-1]])
+                aveist12[i] = aveist12[i] + np.matmul(np.matmul(t.T,istV12[j]),t)
+                aveborn12[i] = aveborn12[i] + np.matmul(np.matmul(t.T,bornV12[j]),t)
+            else:
+                aveist12[i] = aveist12[i] + istV12[j]
+                aveborn12[i] = aveborn12[i] + bornV12[j]
+            count1+=1
+    
+        count = 0        
+        
+        for k in range(len(strucV12)):
+            for l in range(len(strucV12)):        
+                if equiv_atoms[trans12[i]] == equiv_atoms[trans12[k]] and equiv_atoms[trans12[j]] == equiv_atoms[trans12[l]]:
+                    newvector, newlength = pbc_shortest_vectors(\
+                    supercellorig.lattice, supercellorig.frac_coords[trans12[k]], \
+                    supercellorig.frac_coords[trans12[l]], return_d2=True)
+                    if (np.abs(newlength - length) < 0.1 and length > 0.1 and newlength > 0.1) or (np.abs(newlength) < 0.01 and np.abs(length) < 0.01):
+                        vector2 = vector.copy()[0][0]
+                        newvector2 = newvector.copy()[0][0]
+                        for m in range(len(vector2)):
+                            if vector2[m] ==0:
+                                vector2[m] = 1
+                            if newvector2[m] == 0:
+                                newvector2[m] = 1
+                        b = Tensor(np.eye(3)*(newvector2/vector2))
+                        avefcs12[i][j] = avefcs12[i][j] + np.matmul(np.matmul(b.T,fcsV12[k][l]),b)
+                        count+=1
+                    avefcs12[i][j] = avefcs12[i][j] + np.matmul(np.matmul(b.T,fcsV12[k][l]),b)
+        
+#         avefcs12[i][j] = avefcs12[i][j]/count
+    aveborn12[i] = aveborn12[i]/count1
+    aveist12[i] = aveist12[i]/count1
+
