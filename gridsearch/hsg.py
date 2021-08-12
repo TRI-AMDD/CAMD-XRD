@@ -1,14 +1,12 @@
 import itertools
 import numpy as np
 import json
-from pymatgen import Lattice
+from pymatgen.core import Lattice, Structure
 from pymatgen.core.sites import PeriodicSite
 from pyxtal.symmetry import get_wyckoffs
 from tqdm.notebook import tqdm
-from pymatgen.core import Structure
-from joblib import Parallel, delayed
 from pymatgen.util.coord import pbc_shortest_vectors
-
+from pymatgen.analysis.diffraction import xrd
 
 # TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
 
@@ -183,6 +181,15 @@ class HierarchicalStructureGeneration:
             if sum([k[1] for k in q]) == target_n_atoms
         ]
         return self.combinations
+    def get_pymatgen_structure(self, struc):
+        elems = []              
+        for atom in self.atoms:
+            for num in range(atom[0]):
+                elems.append(atom[1])
+        coords = []
+        for coord in struc:
+            coords = coords + coord
+        return Structure(self.lattice,elems,coords)
 
     @staticmethod
     def active_dim(pos):
@@ -386,177 +393,6 @@ class HierarchicalStructureGeneration:
         self.final_strucs = final_strucs
         return final_strucs
 
-    def parallel_get_structure_grid(
-            self,
-            density,
-            combination = 0,
-            n_jobs=-1,
-            batch_size=100000,
-            backend="loky",
-
-    ):
-        """
-        Warning: this is the parallel version of get_structure_grids. Since the atomic tasks are extremely fast
-        get_structure_grids can be much faster if npoints is small. If npoints is large, by dispatching large
-        batches (e.g. 100k) - notable parallelization speedup might happen as overhead is overcome.
-
-        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
-        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
-        by two different species.
-        Args:
-            density (float): number of grid points per angstrom rounded up
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
-            n_jobs (int): number of processes or threads to use. defaults to -1 (all).
-            batch_size (int, str): see joblib.Parallel
-            backend (str): see joblib.Parallel
-
-        Returns:
-            list of structure coordinates which span the grid
-        """
-
-        final_strucs = []
-        combin = self.filter_combinations[combination]
-
-        print(combination, combin)
-        rolling_good_base_strs = []
-        for atom in range(len(combin)):
-            elem_group = combin[atom]
-            elem = self.atoms[atom][1]
-            if elem in self.d_mins_squared:
-                d_min_squared = self.d_mins_squared[elem]
-            else:
-                d_min_squared = None
-
-            _d_tol_squared = d_min_squared if d_min_squared else self.d_tol_squared
-            # FIRST WE WILL GET WYCKOFF SITE GRIDS;
-            # AND REMOVE THOSE OVERLAP ACCROSS DIFFERENT SITES FOR SAME ATOM!
-            _g = []
-            print("{}.{}: Elem self loop: {}".format(combination, combin, elem))
-            passed = []
-            for site1 in elem_group:
-                multiple = 0
-                if site1 in passed:
-                    continue
-                for site2 in elem_group:
-
-                    if site1 == site2:
-                        multiple += 1
-                passed.append(site1)
-
-                if multiple == 1:
-                    _g.append(
-                        list(
-                            self.get_wyckoff_candidates(
-                                pos=self.wyckoffs[site1[0]],
-                                d_min_squared=d_min_squared,
-                                density=density
-                            )
-                        )
-                    )
-                else:
-                    new_list = []
-
-                    for wyckoff_groups in itertools.combinations(self.get_wyckoff_candidates(
-                            pos=self.wyckoffs[site1[0]],
-                            d_min_squared=d_min_squared,
-                            density=density), multiple):
-                        good_str = 1
-                        for group in itertools.product(*wyckoff_groups):
-
-                            for s1, s2 in itertools.combinations(group, 2):
-                                d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-                                if d2 < _d_tol_squared:
-                                    good_str = 0
-                                    break
-                            if good_str == 0:
-                                break
-                        else:
-                            new_list.append(frozenset().union(*wyckoff_groups))
-
-                    _g.append(new_list)
-
-            within_elem_group = list(itertools.product(*_g))
-
-            good_strs_within_elem_group = Parallel(
-                n_jobs=n_jobs, batch_size=batch_size, backend=backend, verbose=1
-            )(
-                delayed(struct_func0)(struct, _d_tol_squared, self.lattice)
-                for struct in within_elem_group
-            )
-
-            good_strs_within_elem_group = [
-                _ for _ in good_strs_within_elem_group if _
-            ]
-
-            if atom == 0:
-                rolling_good_base_strs = good_strs_within_elem_group
-
-            # NOW; we will combine good_strs_within_elem_group and rolling_good_base_strs and
-            # remove if any bad structures accross these.
-
-            if atom > 0:
-                print("{}.{}:  Elem pairs loop: {}".format(combination, combin, elem))
-                rolling_good_base_strs = Parallel(
-                    n_jobs=n_jobs, batch_size=batch_size, backend=backend, verbose=1
-                )(
-                    delayed(struct_func)(
-                        structs,
-                        atom,
-                        self.atoms,
-                        self.d_mins_squared,
-                        self.d_tol_squared,
-                        self.lattice,
-                    )
-                    for structs in itertools.product(
-                        rolling_good_base_strs, good_strs_within_elem_group
-                    )
-                )
-                rolling_good_base_strs = [_ for _ in rolling_good_base_strs if _]
-        final_strucs += rolling_good_base_strs
-
-        self.final_strucs = final_strucs
-        return final_strucs
-
-    def get_structure_vecs(self):
-        pass
-
-
-def struct_func0(struct, _d_tol_squared, lattice):
-    skip_str = False
-    for sub_pairs in itertools.combinations(struct, 2):
-        for s1, s2 in itertools.product(*sub_pairs):
-            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-            if d2 < _d_tol_squared:
-                skip_str = True
-                break
-        else:
-            continue
-        break
-    if not skip_str:
-        return [[i for sub in struct for i in sub]]
-
-
-def struct_func(structs, atom, atoms, d_mins_squared, d_tol_squared, lattice):
-    skip_str = False
-    for i in range(len(structs[0])):
-        # different atoms of previous kind
-        # print(atom, atoms)
-        atomgroup1 = structs[0][i]
-        atomgroup2 = structs[1][0]
-        pair = "-".join(sorted([atoms[i][1], atoms[atom][1]]))
-        _d_tol_squared = max(d_mins_squared.get(pair, 0), d_tol_squared)
-        for s1, s2 in itertools.product(atomgroup1, atomgroup2):
-            d2 = pbc_shortest_vectors(self.lattice, s1, s2, return_d2=True)[1]
-            if d2 < _d_tol_squared:
-                skip_str = True
-                break
-        if skip_str:
-            break
-    if not skip_str:
-        return structs[0] + [structs[1][0]]
-    else:
-        return None
-
 
 def get_linspace(ll, ul, npoints=10, include_bounds=None):
     """
@@ -599,47 +435,43 @@ def parse_asu(p):
         ends.append(e)
     return lims, ends
 
-for i in tqdm_notebook(range(len(strucV12))):
-    count1 = 0
-    for j in range(len(strucV12)):
-        vector, length = pbc_shortest_vectors(\
-            supercellorig.lattice, supercellorig.frac_coords[trans12[i]], \
-            supercellorig.frac_coords[trans12[j]], return_d2=True)
-        
-        if equiv_atoms[trans12[i]] == equiv_atoms[trans12[j]]:
-            newtensor1 = bornorig[int(np.floor(trans12[i]%4))]
-            newtensor2 = bornorig[int(np.floor(trans12[j]%4))]
-            if not np.allclose(newtensor1, newtensor2):
-                t = np.array([[-1,0,0],[0,1,0],[0,0,-1]])
-                aveist12[i] = aveist12[i] + np.matmul(np.matmul(t.T,istV12[j]),t)
-                aveborn12[i] = aveborn12[i] + np.matmul(np.matmul(t.T,bornV12[j]),t)
-            else:
-                aveist12[i] = aveist12[i] + istV12[j]
-                aveborn12[i] = aveborn12[i] + bornV12[j]
-            count1+=1
-    
-        count = 0        
-        
-        for k in range(len(strucV12)):
-            for l in range(len(strucV12)):        
-                if equiv_atoms[trans12[i]] == equiv_atoms[trans12[k]] and equiv_atoms[trans12[j]] == equiv_atoms[trans12[l]]:
-                    newvector, newlength = pbc_shortest_vectors(\
-                    supercellorig.lattice, supercellorig.frac_coords[trans12[k]], \
-                    supercellorig.frac_coords[trans12[l]], return_d2=True)
-                    if (np.abs(newlength - length) < 0.1 and length > 0.1 and newlength > 0.1) or (np.abs(newlength) < 0.01 and np.abs(length) < 0.01):
-                        vector2 = vector.copy()[0][0]
-                        newvector2 = newvector.copy()[0][0]
-                        for m in range(len(vector2)):
-                            if vector2[m] ==0:
-                                vector2[m] = 1
-                            if newvector2[m] == 0:
-                                newvector2[m] = 1
-                        b = Tensor(np.eye(3)*(newvector2/vector2))
-                        avefcs12[i][j] = avefcs12[i][j] + np.matmul(np.matmul(b.T,fcsV12[k][l]),b)
-                        count+=1
-                    avefcs12[i][j] = avefcs12[i][j] + np.matmul(np.matmul(b.T,fcsV12[k][l]),b)
-        
-#         avefcs12[i][j] = avefcs12[i][j]/count
-    aveborn12[i] = aveborn12[i]/count1
-    aveist12[i] = aveist12[i]/count1
+def get_Rs(two_thetas, intensities, matpatterns):
+        xrd_calc = xrd.XRDCalculator()
+        rietweld_mat = []
+
+        referencex = two_thetas
+        referencey = intensities
+        for matindex in matpatterns:
+            numerator = 0
+            count = 0
+
+            for twotheta in range(len(referencex)):
+                peak_intensity = 0
+
+                for twotheta2 in range(len(matindex.x)):
+                    if count == len(referencex)-1:
+                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
+                        np.abs(matindex.x[twotheta2] - referencex[twotheta-1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
+                            peak_intensity += matindex.y[twotheta2]
+                    elif count == 0:
+                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
+                        np.abs(matindex.x[twotheta2] - referencex[twotheta+1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
+                            peak_intensity += matindex.y[twotheta2]
+                    else:
+                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
+                        np.abs(matindex.x[twotheta2] - referencex[twotheta+1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]) and\
+                        np.abs(matindex.x[twotheta2] - referencex[twotheta-1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
+                            peak_intensity += matindex.y[twotheta2]
+
+                numerator += (peak_intensity - referencey[twotheta])**2
+
+                count += 1
+            total = np.sum(matindex.y)
+
+            rietweld_mat.append(numerator/total)
+        return(rietweld_mat)
+
+
+
+
 
