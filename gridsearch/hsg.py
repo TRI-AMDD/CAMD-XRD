@@ -8,9 +8,6 @@ from tqdm.notebook import tqdm
 from pymatgen.util.coord import pbc_shortest_vectors
 from pymatgen.analysis.diffraction import xrd
 
-# TODO: asu was not functioning properly so I made it optional (and also changed, please fix if needed.
-
-
 class HierarchicalStructureGeneration:
     """
     **Input:** Space group, lattice parameters, number of atoms for each element-type in the unit cell, and pair-wise minimum distances allowed.
@@ -32,7 +29,7 @@ class HierarchicalStructureGeneration:
     """
 
     def __init__(
-            self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
+        self, spg, a, b, c, alpha, beta, gamma, atoms, d_tol, d_mins=None, use_asu=False
     ):
         """
         Args:
@@ -59,6 +56,7 @@ class HierarchicalStructureGeneration:
         self.d_mins_squared = {k: v ** 2 for k, v in self.d_mins.items()}
         self.wyckoffs = get_wyckoffs(spg)
         self.multiplicities = [len(w) for w in self.wyckoffs]
+        self.final_strucs = None
 
         if use_asu:
             # TODO: Need to have package data management in the long term
@@ -75,10 +73,9 @@ class HierarchicalStructureGeneration:
                 if sum(self.active_dim(self.wyckoffs[i])) > 0
             ]
         )
-
         filtered_strucs = []
         for i in itertools.product(
-                *[self.get_possible_combinations(a[0]) for a in self.atoms]
+            *[self.get_possible_combinations(a[0]) for a in self.atoms]
         ):
             counter = np.zeros(len(self.wyckoffs))
             for j in i:
@@ -111,14 +108,20 @@ class HierarchicalStructureGeneration:
         """
 
         grid_xyz = []
-        # if self.use_asu:
-        #         continue
 
         for i in range(3):
             if self.active_dim(pos)[i]:
                 if self.use_asu:
-                    npoints = int(np.ceil((self.lattice.parameters[i] * self.ppipe[0][i][1] -
-                                           self.lattice.parameters[i] * self.ppipe[0][i][0]) * density))
+                    npoints = int(
+                        np.ceil(
+                            (
+                                self.lattice.parameters[i] * self.ppipe[0][i][1]
+                                - self.lattice.parameters[i] * self.ppipe[0][i][0]
+                            )
+                            * density
+                        )
+                    )
+                    print("Using {} points in direction {}".format(npoints, i))
                     grid_xyz.append(
                         get_linspace(
                             *self.ppipe[0][i],
@@ -127,7 +130,7 @@ class HierarchicalStructureGeneration:
                         )
                     )
                 else:
-                    npoints = int(np.ceil((self.lattice.parameters[i])*density))
+                    npoints = int(np.ceil((self.lattice.parameters[i]) * density))
                     grid_xyz.append(np.linspace(0, 1, npoints, endpoint=True))
             else:
                 grid_xyz.append([0])  # if dimension is not active.
@@ -148,7 +151,7 @@ class HierarchicalStructureGeneration:
                 )  # forming a set will get rid of duplciates (overlaps)
 
                 if len(wyckoff_positions) == len(
-                        pos
+                    pos
                 ):  # if no overlapping sites, store set of wyckoff positions
                     skip_str = False
                     if d_min_squared:
@@ -365,31 +368,47 @@ class HierarchicalStructureGeneration:
 
         return final_strucs
 
-    def get_structure_grids(self, density, combinations=[0], parallel = False, n_jobs=-1,
-            batch_size=100000,
-            backend="loky" ):
+    def get_structure_grids(
+        self,
+        density,
+        combinations=None,
+        parallel=False,
+        n_jobs=-1,
+        batch_size=100000,
+        backend="loky",
+    ):
         """
-        Combining groups of wyckoff: sites satisfying composition requirements, and filtering
-        out those that would repeat wyckoffs that do not have internal degree of freedom (hence can't be occupied
-        by two different species.
+        Generates structures corresponding to a list of Wyckoff site combinations satisfying the compositional
+        requirements. This method simply calls the proper get_structure_grid method for all combinations listed
+        as argument. This is the preferred convenience method of structure generation in general.
         Args:
             density (float): number of grid points per angstrom rounded up
-            top_X_combinations (int): number of wyckoff configurations to generate structures for
+            combinations (list): Indices of Wyckoff combinations (available from the filter_combinations attribute
+                of the class). Defaults to None, which generated the grids for *all* combinations listed in
+                filter_combinations
+            parallel (bool): Switches the generation method to a parallelized version. See method
+                parallel_get_structure_grid to decide if parallelization is feasible for the particualr use case.
+            n_jobs (int): number of processes or threads to use. defaults to -1 (all).
+            batch_size (int, str): see joblib.Parallel
+            backend (str): see joblib.Parallel
 
         Returns:
-            list of structure coordinates which span the grid
+            A group of lists of structure grids for each combination listed in combinations
         """
 
         final_strucs = []
-
-        combins = np.array(self.filter_combinations)[combinations]
-
-
-        for index in combinations:
-            if parallel == False:
-                final_strucs.append(self.get_structure_grid(density, index))
-            elif parallel == True:
-                final_strucs.append(self.parallel_get_structure_grid(density, index, n_jobs, batch_size, backend))
+        combinations = (
+            combinations if combinations else range(len(self.filter_combinations))
+        )
+        for combination in combinations:
+            if not parallel:
+                final_strucs.append(self.get_structure_grid(density, combination))
+            else:
+                final_strucs.append(
+                    self.parallel_get_structure_grid(
+                        density, combination, n_jobs, batch_size, backend
+                    )
+                )
         self.final_strucs = final_strucs
         return final_strucs
 
