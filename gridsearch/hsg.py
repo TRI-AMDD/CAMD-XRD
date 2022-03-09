@@ -454,42 +454,46 @@ def parse_asu(p):
         ends.append(e)
     return lims, ends
 
-def get_Rs(two_thetas, intensities, matpatterns):
-        xrd_calc = xrd.XRDCalculator()
-        rietweld_mat = []
-
-        referencex = two_thetas
-        referencey = intensities
-        for matindex in matpatterns:
-            numerator = 0
-            count = 0
-
-            for twotheta in range(len(referencex)):
-                peak_intensity = 0
-
-                for twotheta2 in range(len(matindex.x)):
-                    if count == len(referencex)-1:
-                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
-                        np.abs(matindex.x[twotheta2] - referencex[twotheta-1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
-                            peak_intensity += matindex.y[twotheta2]
-                    elif count == 0:
-                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
-                        np.abs(matindex.x[twotheta2] - referencex[twotheta+1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
-                            peak_intensity += matindex.y[twotheta2]
+def get_R(two_thetas_calc, intensities_calc, two_thetas_exp, intensities_exp, tol = 0.15):
+        denominator = 0 
+        numerator = 0
+        for i in range(len(two_thetas_calc)):
+            Iexp = 0
+            
+            for j in range(len(two_thetas_exp)):
+                if two_thetas_exp[j] - two_thetas_calc[i] > tol:
+                    break
+                if np.abs(two_thetas_calc[i] - two_thetas_exp[j]) < tol:
+                    dist = np.abs(two_thetas_calc[i] - two_thetas_exp[j])
+                    if i == 0:
+                        if np.abs(two_thetas_exp[j] - two_thetas_calc[i+1]) > dist:
+                            Iexp += intensities_exp[j]
+                    elif i == len(two_thetas_calc)-1:
+                        if np.abs(two_thetas_exp[j] - two_thetas_calc[i-1]) > dist:
+                            Iexp += intensities_exp[j]
                     else:
-                        if np.abs(matindex.x[twotheta2] - referencex[twotheta]) <= 0.15 and \
-                        np.abs(matindex.x[twotheta2] - referencex[twotheta+1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]) and\
-                        np.abs(matindex.x[twotheta2] - referencex[twotheta-1]) > np.abs(matindex.x[twotheta2] - referencex[twotheta]): 
-                            peak_intensity += matindex.y[twotheta2]
+                        if np.abs(two_thetas_exp[j] - two_thetas_calc[i-1]) > dist and \
+                        np.abs(two_thetas_exp[j] - two_thetas_calc[i+1]) > dist:
+                            Iexp += intensities_exp[j]
+                        
+            numerator += (intensities_calc[i]-Iexp)**2                        
+            denominator += Iexp
+                
+        return(numerator/denominator)
 
-                numerator += (peak_intensity - referencey[twotheta])**2
+def get_Rcont(two_thetas, intensities_calc, intensities_exp):
+                
+        numerator = 0
+        denominator = 0 
+        for i in range(len(two_thetas)):
+            yobs = intensities_exp[i]
+            numerator += np.abs(yobs-intensities_calc[i])
+            denominator += np.abs(yobs)
 
-                count += 1
-            total = np.sum(matindex.y)
-
-            rietweld_mat.append(numerator/total)
-        return(rietweld_mat)
-
+                
+            
+       
+        return(numerator/denominator)
 
 
 
